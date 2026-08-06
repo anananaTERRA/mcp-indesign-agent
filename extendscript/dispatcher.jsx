@@ -6,6 +6,8 @@
  *      moveItem | resizeItem | deleteItem | duplicateItem
  *      setText | replaceText | setFont | setFill
  *      alignItems | distributeItems | centerItems | stackItems | applyMargins
+ *      listStyles | applyStyle | createStyle | updateStyle
+ *      listAssets | checkMissingLinks | relinkAsset | embedAsset
  */
 #target "InDesign"
 
@@ -275,10 +277,114 @@ function mcpCollectStyleNames(collection) {
 
 function mcpLinkStatus(link) {
   try {
-    return String(link.status);
+    // Prefer symbolic names over raw enum integers when possible.
+    var st = link.status;
+    if (st === LinkStatus.NORMAL) return "NORMAL";
+    if (st === LinkStatus.LINK_MISSING) return "LINK_MISSING";
+    if (st === LinkStatus.LINK_OUT_OF_DATE) return "LINK_OUT_OF_DATE";
+    if (st === LinkStatus.LINK_EMBEDDED) return "LINK_EMBEDDED";
+    if (st === LinkStatus.LINK_INACCESSIBLE) return "LINK_INACCESSIBLE";
+    return String(st);
   } catch (e) {
     return "UNKNOWN";
   }
+}
+
+function mcpCollectLinks(doc) {
+  var links = [];
+  var i;
+  try {
+    for (i = 0; i < doc.links.length; i++) {
+      var link = doc.links[i];
+      var linkPage = null;
+      try {
+        if (link.parent && link.parent.parentPage) {
+          linkPage = mcpPageIndexForItem(link.parent, doc);
+        }
+      } catch (eLp) {
+        /* ignore */
+      }
+      var filePath = null;
+      try {
+        filePath = String(link.filePath);
+      } catch (eFp) {
+        /* ignore */
+      }
+      links.push({
+        id: String(link.id),
+        name: String(link.name),
+        filePath: filePath,
+        status: mcpLinkStatus(link),
+        pageIndex: linkPage,
+      });
+    }
+  } catch (eLk) {
+    /* ignore */
+  }
+  return links;
+}
+
+function mcpCollectAllStyles(doc) {
+  return {
+    paragraph: mcpCollectStyleNames(doc.paragraphStyles),
+    character: mcpCollectStyleNames(doc.characterStyles),
+    object: mcpCollectStyleNames(doc.objectStyles),
+  };
+}
+
+function mcpFindStyle(doc, styleKind, name) {
+  var kind = String(styleKind || "paragraph");
+  var n = String(name);
+  var style;
+  try {
+    if (kind === "character") {
+      style = doc.characterStyles.itemByName(n);
+    } else if (kind === "object") {
+      style = doc.objectStyles.itemByName(n);
+    } else {
+      style = doc.paragraphStyles.itemByName(n);
+    }
+    if (!style || !style.isValid) {
+      throw new Error("missing");
+    }
+    return style;
+  } catch (e) {
+    throw new Error("Style not found (" + kind + "): " + n);
+  }
+}
+
+function mcpGetTextForItem(item) {
+  if (item instanceof TextFrame && item.texts.length > 0) return item.texts[0];
+  if (item.texts && item.texts.length > 0) return item.texts[0];
+  throw new Error("Item has no text");
+}
+
+function mcpFindLink(doc, linkId, name) {
+  var i;
+  var idStr = linkId !== undefined && linkId !== null ? String(linkId) : null;
+  var nameStr = name !== undefined && name !== null ? String(name) : null;
+  for (i = 0; i < doc.links.length; i++) {
+    var link = doc.links[i];
+    try {
+      if (idStr && String(link.id) === idStr) return link;
+      if (nameStr && String(link.name) === nameStr) return link;
+    } catch (e) {
+      /* skip */
+    }
+  }
+  throw new Error(
+    "Link not found" +
+      (idStr ? " id=" + idStr : "") +
+      (nameStr ? " name=" + nameStr : ""),
+  );
+}
+
+function mcpPatchStyles(doc) {
+  gModelPatch.styles = mcpCollectAllStyles(doc);
+}
+
+function mcpPatchLinks(doc) {
+  gModelPatch.links = mcpCollectLinks(doc);
 }
 
 function opPing() {
@@ -409,9 +515,7 @@ function opScanDocument(cmd) {
     }
 
     try {
-      styles.paragraph = mcpCollectStyleNames(d.paragraphStyles);
-      styles.character = mcpCollectStyleNames(d.characterStyles);
-      styles.object = mcpCollectStyleNames(d.objectStyles);
+      styles = mcpCollectAllStyles(d);
     } catch (eS) {
       /* ignore */
     }
@@ -447,30 +551,7 @@ function opScanDocument(cmd) {
     }
 
     try {
-      for (i = 0; i < d.links.length; i++) {
-        var link = d.links[i];
-        var linkPage = null;
-        try {
-          if (link.parent && link.parent.parentPage) {
-            linkPage = mcpPageIndexForItem(link.parent, d);
-          }
-        } catch (eLp) {
-          /* ignore */
-        }
-        var filePath = null;
-        try {
-          filePath = String(link.filePath);
-        } catch (eFp) {
-          /* ignore */
-        }
-        links.push({
-          id: String(link.id),
-          name: String(link.name),
-          filePath: filePath,
-          status: mcpLinkStatus(link),
-          pageIndex: linkPage,
-        });
-      }
+      links = mcpCollectLinks(d);
     } catch (eLk) {
       /* ignore */
     }
@@ -604,9 +685,9 @@ function opGetSelection(cmd) {
   };
 }
 
-/* ─── Mutations (phase 3) — coordinates in POINTS ─── */
+/* ─── Mutations (phase 3+) — coordinates in POINTS ─── */
 
-var gModelPatch = { updated: [], removed: [] };
+var gModelPatch = { updated: [], removed: [], styles: null, links: null };
 
 function mcpRequireDoc() {
   if (app.documents.length === 0) {
@@ -1083,6 +1164,333 @@ function opApplyMargins(cmd) {
   return { op: "applyMargins", marginPt: margin, items: out };
 }
 
+/* ─── Styles + Assets (phase 4) ─── */
+
+function opListStyles(cmd) {
+  var doc = mcpRequireDoc();
+  var styles = mcpCollectAllStyles(doc);
+  var kind = cmd && cmd.styleKind ? String(cmd.styleKind) : null;
+  var out = styles;
+  if (kind === "paragraph" || kind === "character" || kind === "object") {
+    out = {};
+    out[kind] = styles[kind];
+  }
+  return { op: "listStyles", styles: out };
+}
+
+function opApplyStyle(cmd) {
+  var doc = mcpRequireDoc();
+  var item = mcpFindByUuid(doc, cmd.target);
+  var styleKind = String(cmd.styleKind || "paragraph");
+  var styleName = String(cmd.style);
+  var style = mcpFindStyle(doc, styleKind, styleName);
+
+  try {
+    if (styleKind === "object") {
+      item.appliedObjectStyle = style;
+    } else {
+      var text = mcpGetTextForItem(item);
+      if (styleKind === "character") {
+        text.appliedCharacterStyle = style;
+      } else {
+        text.appliedParagraphStyle = style;
+      }
+    }
+  } catch (e) {
+    throw new Error("applyStyle failed: " + (e.message || e));
+  }
+
+  mcpPatchUpdated(item, doc);
+  return {
+    op: "applyStyle",
+    target: cmd.target,
+    styleKind: styleKind,
+    style: styleName,
+    item: mcpSerializeItem(item, doc),
+  };
+}
+
+function mcpApplyStyleSpec(style, styleKind, spec) {
+  if (!spec) return;
+  if (styleKind === "object") {
+    // Object styles: limited MVP — fill via fillColor if present on style
+    return;
+  }
+  if (spec.fontFamily) {
+    try {
+      if (spec.fontStyle) {
+        style.appliedFont =
+          String(spec.fontFamily) + "\t" + String(spec.fontStyle);
+      } else {
+        style.appliedFont = String(spec.fontFamily);
+      }
+    } catch (eF) {
+      throw new Error("style fontFamily failed: " + (eF.message || eF));
+    }
+  }
+  if (spec.fontSizePt !== undefined && spec.fontSizePt !== null) {
+    try {
+      style.pointSize = Number(spec.fontSizePt);
+    } catch (eS) {
+      throw new Error("style fontSizePt failed: " + (eS.message || eS));
+    }
+  }
+  if (spec.leadingPt !== undefined && spec.leadingPt !== null) {
+    try {
+      style.leading = Number(spec.leadingPt);
+    } catch (eL) {
+      /* optional */
+    }
+  }
+  if (spec.spaceBeforePt !== undefined && spec.spaceBeforePt !== null) {
+    try {
+      style.spaceBefore = Number(spec.spaceBeforePt);
+    } catch (eB) {
+      /* optional */
+    }
+  }
+  if (spec.spaceAfterPt !== undefined && spec.spaceAfterPt !== null) {
+    try {
+      style.spaceAfter = Number(spec.spaceAfterPt);
+    } catch (eA) {
+      /* optional */
+    }
+  }
+}
+
+function mcpCopyTextStyleFromItem(style, styleKind, item) {
+  var text;
+  try {
+    text = mcpGetTextForItem(item);
+  } catch (e) {
+    throw new Error("createStyle fromTarget requires a text item: " + (e.message || e));
+  }
+  try {
+    if (styleKind === "character") {
+      style.appliedFont = text.appliedFont;
+      style.pointSize = text.pointSize;
+    } else {
+      style.appliedFont = text.appliedFont;
+      style.pointSize = text.pointSize;
+      try {
+        style.leading = text.leading;
+      } catch (eL) {
+        /* ignore */
+      }
+      try {
+        style.spaceBefore = text.spaceBefore;
+        style.spaceAfter = text.spaceAfter;
+      } catch (eSp) {
+        /* ignore */
+      }
+      try {
+        style.justification = text.justification;
+      } catch (eJ) {
+        /* ignore */
+      }
+    }
+  } catch (e2) {
+    throw new Error("copy style from item failed: " + (e2.message || e2));
+  }
+}
+
+function opCreateStyle(cmd) {
+  var doc = mcpRequireDoc();
+  var styleKind = String(cmd.styleKind || "paragraph");
+  var name = String(cmd.name);
+  if (!name) throw new Error("createStyle requires name");
+
+  var collection;
+  if (styleKind === "character") collection = doc.characterStyles;
+  else if (styleKind === "object") collection = doc.objectStyles;
+  else collection = doc.paragraphStyles;
+
+  try {
+    var existing = collection.itemByName(name);
+    if (existing && existing.isValid) {
+      throw new Error("Style already exists (" + styleKind + "): " + name);
+    }
+  } catch (eEx) {
+    if (String(eEx.message || eEx).indexOf("already exists") >= 0) throw eEx;
+  }
+
+  var style;
+  try {
+    style = collection.add({ name: name });
+  } catch (eAdd) {
+    throw new Error("createStyle failed: " + (eAdd.message || eAdd));
+  }
+
+  if (cmd.basedOn) {
+    try {
+      style.basedOn = mcpFindStyle(doc, styleKind, cmd.basedOn);
+    } catch (eBased) {
+      throw new Error("basedOn failed: " + (eBased.message || eBased));
+    }
+  }
+
+  if (cmd.fromTarget) {
+    var src = mcpFindByUuid(doc, cmd.fromTarget);
+    if (styleKind === "object") {
+      try {
+        style.basedOn = src.appliedObjectStyle;
+      } catch (eObj) {
+        /* ignore — object style copy is best-effort */
+      }
+    } else {
+      mcpCopyTextStyleFromItem(style, styleKind, src);
+    }
+  }
+
+  if (cmd.spec) {
+    mcpApplyStyleSpec(style, styleKind, cmd.spec);
+  }
+
+  mcpPatchStyles(doc);
+  return {
+    op: "createStyle",
+    styleKind: styleKind,
+    style: { name: String(style.name) },
+    styles: gModelPatch.styles,
+  };
+}
+
+function opUpdateStyle(cmd) {
+  var doc = mcpRequireDoc();
+  var styleKind = String(cmd.styleKind || "paragraph");
+  var styleName = String(cmd.style || cmd.name);
+  if (!styleName) throw new Error("updateStyle requires style name");
+  var style = mcpFindStyle(doc, styleKind, styleName);
+
+  if (cmd.basedOn) {
+    try {
+      style.basedOn = mcpFindStyle(doc, styleKind, cmd.basedOn);
+    } catch (eBased) {
+      throw new Error("basedOn failed: " + (eBased.message || eBased));
+    }
+  }
+
+  if (cmd.fromTarget) {
+    var src = mcpFindByUuid(doc, cmd.fromTarget);
+    if (styleKind !== "object") {
+      mcpCopyTextStyleFromItem(style, styleKind, src);
+    }
+  }
+
+  if (cmd.spec) {
+    mcpApplyStyleSpec(style, styleKind, cmd.spec);
+  }
+
+  if (cmd.newName) {
+    try {
+      style.name = String(cmd.newName);
+    } catch (eN) {
+      throw new Error("rename style failed: " + (eN.message || eN));
+    }
+  }
+
+  mcpPatchStyles(doc);
+  return {
+    op: "updateStyle",
+    styleKind: styleKind,
+    style: { name: String(style.name) },
+    styles: gModelPatch.styles,
+  };
+}
+
+function opListAssets(cmd) {
+  var doc = mcpRequireDoc();
+  var links = mcpCollectLinks(doc);
+  var statusFilter = cmd && cmd.status ? String(cmd.status) : null;
+  if (statusFilter) {
+    var filtered = [];
+    var i;
+    for (i = 0; i < links.length; i++) {
+      if (links[i].status === statusFilter) filtered.push(links[i]);
+    }
+    links = filtered;
+  }
+  return { op: "listAssets", links: links, count: links.length };
+}
+
+function opCheckMissingLinks(cmd) {
+  var doc = mcpRequireDoc();
+  var links = mcpCollectLinks(doc);
+  var missing = [];
+  var outOfDate = [];
+  var i;
+  for (i = 0; i < links.length; i++) {
+    var st = links[i].status;
+    if (st === "LINK_MISSING" || st === "LINK_INACCESSIBLE") {
+      missing.push(links[i]);
+    } else if (st === "LINK_OUT_OF_DATE") {
+      outOfDate.push(links[i]);
+    }
+  }
+  return {
+    op: "checkMissingLinks",
+    missing: missing,
+    outOfDate: outOfDate,
+    ok: missing.length === 0,
+    links: links,
+  };
+}
+
+function opRelinkAsset(cmd) {
+  var doc = mcpRequireDoc();
+  var link = mcpFindLink(doc, cmd.linkId, cmd.name);
+  var filePath = String(cmd.filePath || "");
+  if (!filePath) throw new Error("relinkAsset requires filePath");
+  var f = new File(filePath);
+  if (!f.exists) {
+    throw new Error("File not found: " + filePath);
+  }
+  try {
+    link.relink(f);
+  } catch (e) {
+    throw new Error("relink failed: " + (e.message || e));
+  }
+  try {
+    if (link.status === LinkStatus.LINK_OUT_OF_DATE) {
+      link.update();
+    }
+  } catch (eU) {
+    /* best-effort update */
+  }
+  mcpPatchLinks(doc);
+  var refreshed = null;
+  var all = gModelPatch.links || [];
+  var i;
+  for (i = 0; i < all.length; i++) {
+    if (String(all[i].id) === String(link.id) || String(all[i].name) === String(link.name)) {
+      refreshed = all[i];
+      break;
+    }
+  }
+  return {
+    op: "relinkAsset",
+    link: refreshed,
+    links: gModelPatch.links,
+  };
+}
+
+function opEmbedAsset(cmd) {
+  var doc = mcpRequireDoc();
+  var link = mcpFindLink(doc, cmd.linkId, cmd.name);
+  var linkId = String(link.id);
+  try {
+    link.unlink();
+  } catch (e) {
+    throw new Error("embed (unlink) failed: " + (e.message || e));
+  }
+  mcpPatchLinks(doc);
+  return {
+    op: "embedAsset",
+    embeddedId: linkId,
+    links: gModelPatch.links,
+  };
+}
+
 function runCommand(cmd) {
   if (!cmd || !cmd.op) {
     throw new Error("Command missing op");
@@ -1122,6 +1530,23 @@ function runCommand(cmd) {
       return opStackItems(cmd);
     case "applyMargins":
       return opApplyMargins(cmd);
+    case "listStyles":
+      return opListStyles(cmd);
+    case "applyStyle":
+      return opApplyStyle(cmd);
+    case "createStyle":
+      return opCreateStyle(cmd);
+    case "updateStyle":
+      return opUpdateStyle(cmd);
+    case "listAssets":
+      return opListAssets(cmd);
+    case "checkMissingLinks":
+      return opCheckMissingLinks(cmd);
+    case "relinkAsset":
+    case "replaceAsset":
+      return opRelinkAsset(cmd);
+    case "embedAsset":
+      return opEmbedAsset(cmd);
     default:
       throw new Error("Unknown op: " + cmd.op);
   }
@@ -1155,7 +1580,7 @@ function mcpMain() {
     var results = [];
     var c;
 
-    gModelPatch = { updated: [], removed: [] };
+    gModelPatch = { updated: [], removed: [], styles: null, links: null };
 
     var prevInteraction = app.scriptPreferences.userInteractionLevel;
     app.scriptPreferences.userInteractionLevel =
@@ -1195,8 +1620,18 @@ function mcpMain() {
     }
 
     var patch = null;
-    if (gModelPatch.updated.length > 0 || gModelPatch.removed.length > 0) {
-      patch = gModelPatch;
+    if (
+      gModelPatch.updated.length > 0 ||
+      gModelPatch.removed.length > 0 ||
+      gModelPatch.styles ||
+      gModelPatch.links
+    ) {
+      patch = {
+        updated: gModelPatch.updated,
+        removed: gModelPatch.removed,
+      };
+      if (gModelPatch.styles) patch.styles = gModelPatch.styles;
+      if (gModelPatch.links) patch.links = gModelPatch.links;
     }
 
     result = {

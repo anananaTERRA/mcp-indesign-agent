@@ -58,8 +58,10 @@ export class SessionStore {
 
     const updated = (patch.updated ?? []) as Array<Partial<DocumentItem> & { uuid: string }>;
     const removed = (patch.removed ?? []) as Array<string | { uuid: string }>;
+    const hasItemChanges = updated.length > 0 || removed.length > 0;
+    const hasMetaChanges = Boolean(patch.styles || patch.links);
 
-    if (updated.length === 0 && removed.length === 0) {
+    if (!hasItemChanges && !hasMetaChanges) {
       return;
     }
 
@@ -101,9 +103,30 @@ export class SessionStore {
     }
 
     items = Array.from(byUuid.values());
+
+    const styles = patch.styles
+      ? {
+          paragraph: patch.styles.paragraph ?? this.model.styles.paragraph,
+          character: patch.styles.character ?? this.model.styles.character,
+          object: patch.styles.object ?? this.model.styles.object,
+        }
+      : this.model.styles;
+
+    const links = patch.links
+      ? patch.links.map((l) => ({
+          id: String(l.id),
+          name: l.name,
+          filePath: l.filePath,
+          status: l.status,
+          pageIndex: l.pageIndex,
+        }))
+      : this.model.links;
+
     this.model = {
       ...this.model,
       items,
+      styles,
+      links,
       meta: {
         ...this.model.meta,
         pageCount: this.model.pages.length,

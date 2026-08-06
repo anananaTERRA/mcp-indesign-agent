@@ -18,6 +18,15 @@ export type DispatcherOp =
   | "centerItems"
   | "stackItems"
   | "applyMargins"
+  | "listStyles"
+  | "applyStyle"
+  | "createStyle"
+  | "updateStyle"
+  | "listAssets"
+  | "checkMissingLinks"
+  | "relinkAsset"
+  | "replaceAsset"
+  | "embedAsset"
   | string;
 
 export interface DispatcherCommand {
@@ -49,9 +58,25 @@ export interface ModelPatchItem {
   role?: string | null;
 }
 
+export interface ModelPatchStyles {
+  paragraph?: Array<{ name: string }>;
+  character?: Array<{ name: string }>;
+  object?: Array<{ name: string }>;
+}
+
+export interface ModelPatchLink {
+  id: string;
+  name: string;
+  filePath: string | null;
+  status: string;
+  pageIndex: number | null;
+}
+
 export interface ModelPatch {
   updated?: ModelPatchItem[];
   removed?: Array<string | { uuid: string }>;
+  styles?: ModelPatchStyles | null;
+  links?: ModelPatchLink[] | null;
 }
 
 export interface DispatcherErrorBody {

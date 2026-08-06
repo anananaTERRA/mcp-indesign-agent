@@ -387,8 +387,8 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
 
 ### Fase 4 — Styles + Assets (1,5 dia) — **antes de overlap**
 
-- [ ] `list_styles`, `apply_style`, `create_style`, `update_style`
-- [ ] `list_assets`, `relink_asset` / `replace_asset`, `check_missing_links`, `embed_asset`
+- [x] `list_styles`, `apply_style`, `create_style`, `update_style`
+- [x] `list_assets`, `relink_asset` / `replace_asset`, `check_missing_links`, `embed_asset`
 
 **Done:** aplicar paragraph style por comando natural; listar e relinkar imagem missing.
 
@@ -610,4 +610,34 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 - Role targets funcionam quando `item.role` existir (Fase 5 `analyze_page`); até lá usar uuid / selection
 - `duplicate` / `applyMargins` incluídos além do checklist mínimo
 
-**Próximo:** Fase 4 — Styles + Assets.
+**Próximo:** Fase 5 — Semântica + layout assistant.
+
+---
+
+### 2026-08-06 — Fase 4 (Styles + Assets) ✅
+
+**Branch:** `mcp-indesign-v1`
+
+| Feito | Detalhe |
+| --- | --- |
+| Dispatcher | ops `listStyles`, `applyStyle`, `createStyle`, `updateStyle`, `listAssets`, `checkMissingLinks`, `relinkAsset`/`replaceAsset`, `embedAsset` |
+| Schema/planner | batch ops `applyStyle`, `createStyle`, `updateStyle`, `relinkAsset`, `replaceAsset`, `embedAsset` |
+| Cache | `modelPatch.styles` / `modelPatch.links` atualizam SessionStore sem rescan |
+| Tools | `list_styles`, `apply_style`, `create_style`, `update_style`, `list_assets`, `check_missing_links`, `relink_asset`, `replace_asset`, `embed_asset` |
+| Doctor | smoke `listStyles` + `applyStyle` + `listAssets` + `checkMissingLinks` |
+
+**Validação `npm run doctor` (máquina local, doc aberto):**
+
+- Documento: **Test mcp** — UUID estável
+- `listStyles`: paragraph styles listados
+- `applyStyle` paragraph: **ok**, `modelPatch.updated=1`
+- `listAssets`: 0 links; `checkMissingLinks`: missing=0, allOk=true
+- Doctor OK
+
+**Decisões:**
+
+- `list_*` serve do cache por padrão; `refresh:true` relê no InDesign
+- `replace_asset` ≡ `relinkAsset` no dispatcher (mesma op de relink)
+- Spec MVP de style: fontFamily / fontStyle / fontSizePt / leading / spaceBefore/After; create também aceita `basedOn` + `fromTarget`
+
+**Próximo:** Fase 5 — Semântica + layout assistant.

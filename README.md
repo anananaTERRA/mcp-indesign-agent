@@ -10,9 +10,9 @@ Arquitetura: **Document Model em cache**, **UUIDs persistentes**, **~15–25 too
 
 ## Status
 
-**Fase 3 (batch + ops)** — `execute_batch` / `preview_batch`, planner (uuid | role | selection), ops geométricas/texto no dispatcher, `modelPatch` atualiza o cache.
+**Fase 4 (styles + assets)** — paragraph/character/object styles + links (list/relink/embed/check missing), com `modelPatch` no cache.
 
-Tools: sessão (Fase 2) + `preview_batch`, `execute_batch`, `execute_operation`, `layout_operation`.
+Tools: sessão + batch/layout (Fases 2–3) + `list_styles`, `apply_style`, `create_style`, `update_style`, `list_assets`, `check_missing_links`, `relink_asset`, `replace_asset`, `embed_asset`.
 
 ## Prerequisites
 
@@ -35,21 +35,22 @@ npm run doctor
 INDESIGN_APP_NAME="Adobe InDesign 2026" npm run doctor
 ```
 
-Com `.indd` aberto: UUID estável + smoke `moveItem` (+20pt / −20pt).
+Com `.indd` aberto: UUID estável + smoke `moveItem` + `applyStyle` + links.
 
 ## Fluxo do agent (recomendado)
 
 ```
 1. ping_indesign
 2. scan_document              → cache + snapshot before
-3. preview_batch (opcional)   → dry-run no model
-4. execute_batch              → um round-trip; modelPatch no cache
-5. summarize_changes
+3. list_styles / list_assets  → do cache (refresh se precisar)
+4. preview_batch (opcional)   → dry-run no model
+5. execute_batch              → um round-trip; modelPatch no cache
+6. summarize_changes
 ```
 
 Geometria em **points**. Targets: `uuid` | `{ uuid }` | `{ role, pageIndex? }` | `{ selection: true }`.
 
-Ops de batch: `move`, `resize`, `delete`, `duplicate`, `setText`, `replaceText`, `setFont`, `setFill`, `align`, `distribute`, `center`, `stack`, `applyMargins`.
+Ops de batch: `move`, `resize`, `delete`, `duplicate`, `setText`, `replaceText`, `setFont`, `setFill`, `align`, `distribute`, `center`, `stack`, `applyMargins`, `applyStyle`, `createStyle`, `updateStyle`, `relinkAsset`, `replaceAsset`, `embedAsset`.
 
 ## Connect to Cursor
 

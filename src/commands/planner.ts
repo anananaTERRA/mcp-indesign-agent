@@ -73,6 +73,29 @@ export function requireItems(
   });
 }
 
+function resolveOptionalTarget(
+  target: TargetInput | undefined,
+  model: DocumentModel,
+): string | undefined {
+  if (target === undefined) return undefined;
+  const uuids = resolveTargetUuids(target, model);
+  if (uuids.length !== 1) {
+    throw new PlannerError(
+      `fromTarget must resolve to exactly one item (got ${uuids.length})`,
+    );
+  }
+  return uuids[0];
+}
+
+function requireLinkRef(cmd: {
+  linkId?: string | number;
+  name?: string;
+}): void {
+  if (cmd.linkId === undefined && !cmd.name) {
+    throw new PlannerError("Asset ops require linkId or name");
+  }
+}
+
 /**
  * Expand high-level batch commands into dispatcher ops with concrete uuids.
  * Multi-target geometric ops (align/distribute/…) become one dispatcher command.
@@ -85,10 +108,9 @@ export function planCommands(
   const out: ResolvedDispatcherCommand[] = [];
 
   for (const cmd of commands) {
-    const uuids = resolveTargetUuids(cmd.target, model);
-
     switch (cmd.op) {
-      case "move":
+      case "move": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         for (const target of uuids) {
           out.push({
             op: "moveItem",
@@ -100,7 +122,9 @@ export function planCommands(
           });
         }
         break;
-      case "resize":
+      }
+      case "resize": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         for (const target of uuids) {
           out.push({
             op: "resizeItem",
@@ -110,12 +134,16 @@ export function planCommands(
           });
         }
         break;
-      case "delete":
+      }
+      case "delete": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         for (const target of uuids) {
           out.push({ op: "deleteItem", target });
         }
         break;
-      case "duplicate":
+      }
+      case "duplicate": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         for (const target of uuids) {
           out.push({
             op: "duplicateItem",
@@ -125,12 +153,16 @@ export function planCommands(
           });
         }
         break;
-      case "setText":
+      }
+      case "setText": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         for (const target of uuids) {
           out.push({ op: "setText", target, text: cmd.text });
         }
         break;
-      case "replaceText":
+      }
+      case "replaceText": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         for (const target of uuids) {
           out.push({
             op: "replaceText",
@@ -141,7 +173,9 @@ export function planCommands(
           });
         }
         break;
-      case "setFont":
+      }
+      case "setFont": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         for (const target of uuids) {
           out.push({
             op: "setFont",
@@ -152,25 +186,35 @@ export function planCommands(
           });
         }
         break;
-      case "setFill":
+      }
+      case "setFill": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         for (const target of uuids) {
           out.push({ op: "setFill", target, fill: cmd.fill });
         }
         break;
-      case "align":
+      }
+      case "align": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         out.push({ op: "alignItems", targets: uuids, align: cmd.align });
         break;
-      case "distribute":
+      }
+      case "distribute": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         out.push({
           op: "distributeItems",
           targets: uuids,
           axis: cmd.axis,
         });
         break;
-      case "center":
+      }
+      case "center": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         out.push({ op: "centerItems", targets: uuids });
         break;
-      case "stack":
+      }
+      case "stack": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         out.push({
           op: "stackItems",
           targets: uuids,
@@ -179,13 +223,71 @@ export function planCommands(
           startPt: cmd.startPt,
         });
         break;
-      case "applyMargins":
+      }
+      case "applyMargins": {
+        const uuids = resolveTargetUuids(cmd.target, model);
         out.push({
           op: "applyMargins",
           targets: uuids,
           marginPt: cmd.marginPt,
         });
         break;
+      }
+      case "applyStyle": {
+        const uuids = resolveTargetUuids(cmd.target, model);
+        for (const target of uuids) {
+          out.push({
+            op: "applyStyle",
+            target,
+            style: cmd.style,
+            styleKind: cmd.styleKind,
+          });
+        }
+        break;
+      }
+      case "createStyle": {
+        out.push({
+          op: "createStyle",
+          name: cmd.name,
+          styleKind: cmd.styleKind,
+          basedOn: cmd.basedOn,
+          fromTarget: resolveOptionalTarget(cmd.fromTarget, model),
+          spec: cmd.spec,
+        });
+        break;
+      }
+      case "updateStyle": {
+        out.push({
+          op: "updateStyle",
+          style: cmd.style,
+          styleKind: cmd.styleKind,
+          basedOn: cmd.basedOn,
+          fromTarget: resolveOptionalTarget(cmd.fromTarget, model),
+          newName: cmd.newName,
+          spec: cmd.spec,
+        });
+        break;
+      }
+      case "relinkAsset":
+      case "replaceAsset": {
+        requireLinkRef(cmd);
+        out.push({
+          op: cmd.op,
+          linkId: cmd.linkId,
+          name: cmd.name,
+          filePath: cmd.filePath,
+        });
+        break;
+      }
+      case "embedAsset": {
+        requireLinkRef(cmd);
+        out.push({
+          op: "embedAsset",
+          linkId: cmd.linkId,
+          name: cmd.name,
+        });
+        break;
+      }
       default: {
         const _exhaustive: never = cmd;
         throw new PlannerError(`Unsupported op: ${JSON.stringify(_exhaustive)}`);

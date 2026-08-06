@@ -140,7 +140,8 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
       case "setText":
       case "replaceText":
       case "setFont":
-      case "setFill": {
+      case "setFill":
+      case "applyStyle": {
         const box = boundsMap.get(cmd.target);
         changes.push({
           uuid: cmd.target,
@@ -148,6 +149,41 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
           fromBounds: box ? fromBox(box) : null,
           toBounds: box ? fromBox(box) : null,
           note: "text/style change (bounds unchanged in preview)",
+        });
+        break;
+      }
+      case "createStyle":
+      case "updateStyle": {
+        changes.push({
+          uuid: "",
+          op: cmd.op,
+          fromBounds: null,
+          toBounds: null,
+          note:
+            cmd.op === "createStyle"
+              ? `create ${cmd.styleKind ?? "paragraph"} style "${cmd.name}"`
+              : `update ${cmd.styleKind ?? "paragraph"} style "${cmd.style}"`,
+        });
+        break;
+      }
+      case "relinkAsset":
+      case "replaceAsset": {
+        changes.push({
+          uuid: "",
+          op: cmd.op,
+          fromBounds: null,
+          toBounds: null,
+          note: `relink ${cmd.linkId ?? cmd.name} → ${cmd.filePath}`,
+        });
+        break;
+      }
+      case "embedAsset": {
+        changes.push({
+          uuid: "",
+          op: cmd.op,
+          fromBounds: null,
+          toBounds: null,
+          note: `embed ${cmd.linkId ?? cmd.name}`,
         });
         break;
       }
@@ -314,6 +350,12 @@ export async function executeBatch(
         "centerItems",
         "stackItems",
         "applyMargins",
+        "applyStyle",
+        "createStyle",
+        "updateStyle",
+        "relinkAsset",
+        "replaceAsset",
+        "embedAsset",
       ].includes(c.op),
     );
     if (mutating) {
@@ -348,6 +390,8 @@ function normalizePatch(patch: ModelPatch): ModelPatch {
     removed: (patch.removed ?? []).map((r) =>
       typeof r === "string" ? r : (r as { uuid: string }).uuid,
     ),
+    styles: patch.styles ?? undefined,
+    links: patch.links ?? undefined,
   };
 }
 

@@ -7,6 +7,7 @@ export type {
   DispatcherCommand,
   DispatcherPayload,
   DispatcherResult,
+  ModelPatch,
   PingInfo,
 } from "./types.js";
 export { BridgeError } from "./types.js";

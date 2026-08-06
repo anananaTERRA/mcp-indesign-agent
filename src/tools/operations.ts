@@ -30,7 +30,7 @@ const TargetField = z.union([
 export function registerOperationTools(server: McpServer): void {
   server.tool(
     "execute_operation",
-    "Run one mutation (move/resize/delete/duplicate/setText/replaceText/setFont/setFill). Prefer execute_batch for multiple ops.",
+    "Run one mutation (move/resize/delete/duplicate/setText/replaceText/setFont/setFill/applyStyle). Prefer execute_batch for multiple ops.",
     {
       op: z.enum([
         "move",
@@ -41,6 +41,7 @@ export function registerOperationTools(server: McpServer): void {
         "replaceText",
         "setFont",
         "setFill",
+        "applyStyle",
       ]),
       target: TargetField,
       dx: z.number().optional(),
@@ -65,6 +66,8 @@ export function registerOperationTools(server: McpServer): void {
           }),
         ])
         .optional(),
+      style: z.string().optional(),
+      styleKind: z.enum(["paragraph", "character", "object"]).optional(),
       timeoutSec: z.number().int().min(1).max(300).optional(),
     },
     withToolError(async (args) => {

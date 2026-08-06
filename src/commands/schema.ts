@@ -32,6 +32,15 @@ const FillSchema = z.union([
   }),
 ]);
 
+const StyleSpecSchema = z.object({
+  fontFamily: z.string().optional(),
+  fontStyle: z.string().optional(),
+  fontSizePt: z.number().positive().optional(),
+  leadingPt: z.number().positive().optional(),
+  spaceBeforePt: z.number().nonnegative().optional(),
+  spaceAfterPt: z.number().nonnegative().optional(),
+});
+
 /** High-level ops accepted by preview/execute_batch (before target resolution). */
 export const BatchCommandSchema = z.discriminatedUnion("op", [
   z.object({
@@ -108,6 +117,46 @@ export const BatchCommandSchema = z.discriminatedUnion("op", [
     target: TargetSchema,
     marginPt: z.number().nonnegative().optional(),
   }),
+  z.object({
+    op: z.literal("applyStyle"),
+    target: TargetSchema,
+    style: z.string().min(1),
+    styleKind: z.enum(["paragraph", "character", "object"]).optional(),
+  }),
+  z.object({
+    op: z.literal("createStyle"),
+    name: z.string().min(1),
+    styleKind: z.enum(["paragraph", "character", "object"]).optional(),
+    basedOn: z.string().optional(),
+    fromTarget: TargetSchema.optional(),
+    spec: StyleSpecSchema.optional(),
+  }),
+  z.object({
+    op: z.literal("updateStyle"),
+    style: z.string().min(1),
+    styleKind: z.enum(["paragraph", "character", "object"]).optional(),
+    basedOn: z.string().optional(),
+    fromTarget: TargetSchema.optional(),
+    newName: z.string().min(1).optional(),
+    spec: StyleSpecSchema.optional(),
+  }),
+  z.object({
+    op: z.literal("relinkAsset"),
+    linkId: z.union([z.string(), z.number()]).optional(),
+    name: z.string().optional(),
+    filePath: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal("replaceAsset"),
+    linkId: z.union([z.string(), z.number()]).optional(),
+    name: z.string().optional(),
+    filePath: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal("embedAsset"),
+    linkId: z.union([z.string(), z.number()]).optional(),
+    name: z.string().optional(),
+  }),
 ]);
 
 export type BatchCommand = z.infer<typeof BatchCommandSchema>;
@@ -179,6 +228,40 @@ export type ResolvedDispatcherCommand =
       op: "applyMargins";
       targets: string[];
       marginPt?: number;
+    }
+  | {
+      op: "applyStyle";
+      target: string;
+      style: string;
+      styleKind?: "paragraph" | "character" | "object";
+    }
+  | {
+      op: "createStyle";
+      name: string;
+      styleKind?: "paragraph" | "character" | "object";
+      basedOn?: string;
+      fromTarget?: string;
+      spec?: z.infer<typeof StyleSpecSchema>;
+    }
+  | {
+      op: "updateStyle";
+      style: string;
+      styleKind?: "paragraph" | "character" | "object";
+      basedOn?: string;
+      fromTarget?: string;
+      newName?: string;
+      spec?: z.infer<typeof StyleSpecSchema>;
+    }
+  | {
+      op: "relinkAsset" | "replaceAsset";
+      linkId?: string | number;
+      name?: string;
+      filePath: string;
+    }
+  | {
+      op: "embedAsset";
+      linkId?: string | number;
+      name?: string;
     };
 
 export function parseBatchCommands(input: unknown): BatchCommand[] {

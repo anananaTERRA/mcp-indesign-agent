@@ -150,6 +150,62 @@ async function main(): Promise<void> {
       console.log(
         `restore ok: ${Boolean(restore.ok)} patch.updated=${restore.modelPatch?.updated?.length ?? 0}`,
       );
+
+      printSection("listStyles + applyStyle (phase 4 smoke)");
+      const stylesRes = await bridge.run({
+        requestId: "doctor-list-styles",
+        commands: [{ op: "listStyles" }],
+      });
+      const stylesBody = stylesRes.results[0] as {
+        styles?: { paragraph?: Array<{ name: string }> };
+      };
+      const para = stylesBody.styles?.paragraph ?? [];
+      console.log(`paragraph styles: ${para.length}`);
+      const applyTarget =
+        para.find(
+          (s) =>
+            s.name &&
+            s.name !== "[No Paragraph Style]" &&
+            !s.name.startsWith("["),
+        ) ?? para.find((s) => s.name === "[Basic Paragraph]") ?? para[0];
+      if (applyTarget && withUuid[0].type === "TextFrame") {
+        const apply = await bridge.run({
+          requestId: "doctor-apply-style",
+          commands: [
+            {
+              op: "applyStyle",
+              target: uuid,
+              style: applyTarget.name,
+              styleKind: "paragraph",
+            },
+          ],
+        });
+        console.log(
+          `applyStyle "${applyTarget.name}" ok: ${Boolean(apply.ok)} patch.updated=${apply.modelPatch?.updated?.length ?? 0}`,
+        );
+      } else {
+        console.log("applyStyle skipped (no paragraph style or sample is not TextFrame)");
+      }
+
+      printSection("listAssets + checkMissingLinks (phase 4 smoke)");
+      const assetsRes = await bridge.run({
+        requestId: "doctor-list-assets",
+        commands: [{ op: "listAssets" }],
+      });
+      const assetsBody = assetsRes.results[0] as { count?: number; links?: unknown[] };
+      console.log(`assets/links: ${assetsBody.count ?? assetsBody.links?.length ?? 0}`);
+      const missingRes = await bridge.run({
+        requestId: "doctor-missing-links",
+        commands: [{ op: "checkMissingLinks" }],
+      });
+      const missingBody = missingRes.results[0] as {
+        missing?: unknown[];
+        outOfDate?: unknown[];
+        ok?: boolean;
+      };
+      console.log(
+        `missing=${missingBody.missing?.length ?? 0} outOfDate=${missingBody.outOfDate?.length ?? 0} allOk=${Boolean(missingBody.ok)}`,
+      );
     }
   } else {
     printSection("scanDocument");
