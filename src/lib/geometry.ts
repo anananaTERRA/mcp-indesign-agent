@@ -188,3 +188,52 @@ export function resizeBox(
     height: size.height ?? box.height,
   };
 }
+
+export function boundsBottom(b: Box): number {
+  return b.y + b.height;
+}
+
+export function boundsRight(b: Box): number {
+  return b.x + b.width;
+}
+
+/** Axis-aligned overlap (positive area). */
+export function boundsOverlap(a: Box, b: Box): boolean {
+  return (
+    a.x < boundsRight(b) &&
+    boundsRight(a) > b.x &&
+    a.y < boundsBottom(b) &&
+    boundsBottom(a) > b.y
+  );
+}
+
+/** Vertical gap between a (above) and b (below). Negative = overlap. */
+export function verticalGap(above: Box, below: Box): number {
+  return below.y - boundsBottom(above);
+}
+
+/**
+ * Estimate comfortable text-frame height from font size and content (points).
+ * Uses ~1.35 line height; min 1 line.
+ */
+export function estimateTextBoxHeightPt(
+  fontSizePt: number | null,
+  text: string,
+  boxWidthPt: number,
+): number {
+  const size = fontSizePt ?? 14;
+  const lineHeight = size * 1.35;
+  const avgCharWidth = size * 0.55;
+  const charsPerLine = Math.max(
+    8,
+    Math.floor(boxWidthPt / Math.max(avgCharWidth, 1)),
+  );
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const explicitLines = Math.max(1, text.split(/\n/).length);
+  const wrappedLines = Math.max(
+    1,
+    Math.ceil(Math.max(normalized.length, 1) / charsPerLine),
+  );
+  const lines = Math.max(explicitLines, wrappedLines);
+  return Math.round(lineHeight * lines + size * 0.4);
+}

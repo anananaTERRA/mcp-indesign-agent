@@ -5,6 +5,7 @@ import { registerAssetTools } from "./tools/assets.js";
 import { registerBatchTools } from "./tools/batch.js";
 import { registerLayoutTools } from "./tools/layout.js";
 import { registerOperationTools } from "./tools/operations.js";
+import { registerSemanticTools } from "./tools/semantic.js";
 import { registerSessionTools } from "./tools/session.js";
 import { registerStyleTools } from "./tools/styles.js";
 
@@ -14,6 +15,7 @@ const server = new McpServer({
 });
 
 registerSessionTools(server);
+registerSemanticTools(server);
 registerBatchTools(server);
 registerOperationTools(server);
 registerLayoutTools(server);

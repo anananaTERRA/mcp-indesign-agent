@@ -122,7 +122,9 @@ export interface DocumentModelSummary {
     type: string;
     pageIndex: number;
     textPreview: string;
+    role: string | null;
   }>;
+  roleCounts?: Record<string, number>;
 }
 
 /** Raw scan payload from the ExtendScript dispatcher. */
@@ -214,8 +216,21 @@ export function summarizeModel(
       type: it.type,
       pageIndex: it.pageIndex,
       textPreview: it.textPreview,
+      role: it.role ?? null,
     })),
+    roleCounts: countRoles(model.items),
   };
+}
+
+function countRoles(
+  items: DocumentItem[],
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const it of items) {
+    const role = it.role ?? "Unknown";
+    counts[role] = (counts[role] ?? 0) + 1;
+  }
+  return counts;
 }
 
 export function scanResultToModel(scan: ScanDocumentResult): DocumentModel {

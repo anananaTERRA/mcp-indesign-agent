@@ -12,9 +12,15 @@ import {
   AppleScriptExtendScriptAdapter,
 } from "../src/bridge/index.ts";
 import {
+  diagnosePageLayout,
+  planLayoutFix,
+} from "../src/lib/layout-assistant.ts";
+import {
   scanResultToModel,
   sessionStore,
   snapshotStore,
+  analyzePage,
+  applyRolesToModel,
   type ScanDocumentResult,
 } from "../src/session/index.ts";
 
@@ -206,6 +212,38 @@ async function main(): Promise<void> {
       console.log(
         `missing=${missingBody.missing?.length ?? 0} outOfDate=${missingBody.outOfDate?.length ?? 0} allOk=${Boolean(missingBody.ok)}`,
       );
+    }
+
+    printSection("analyze_page + layout_assistant diagnose (phase 5 smoke)");
+    {
+      const current = sessionStore.get();
+      if (current) {
+        const analysis = analyzePage(current, 0);
+        sessionStore.set(applyRolesToModel(current, analysis.assignments));
+        console.log(`roles page 0: ${JSON.stringify(analysis.roleCounts)}`);
+        const sampleRole = analysis.assignments[0];
+        if (sampleRole) {
+          console.log(
+            `sample: uuid=${sampleRole.uuid} role=${sampleRole.role} conf=${sampleRole.confidence}`,
+          );
+        }
+        const diagnosis = diagnosePageLayout(sessionStore.get()!, {
+          pageIndex: 0,
+          minGapPt: 12,
+          marginPt: 24,
+        });
+        console.log(
+          `diagnose: textBoxes=${diagnosis.textBoxCount} overlaps=${diagnosis.overlappingOrTightPairs.length} outside=${diagnosis.outsideSafeArea.length} needsFix=${diagnosis.needsFix}`,
+        );
+        const previewPlan = planLayoutFix(sessionStore.get()!, {
+          pageIndex: 0,
+          minGapPt: 18,
+          marginPt: 24,
+        });
+        console.log(
+          `layout preview plan: commands=${previewPlan.changeCount} (dry-run only)`,
+        );
+      }
     }
   } else {
     printSection("scanDocument");

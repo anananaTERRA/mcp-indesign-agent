@@ -39,7 +39,7 @@ export function resolveTargetUuids(
     });
     if (matches.length === 0) {
       throw new PlannerError(
-        `No items with role="${role}"${pageIndex !== undefined ? ` on page ${pageIndex}` : ""}. Run analyze_page (phase 5) or target by uuid/selection.`,
+        `No items with role="${role}"${pageIndex !== undefined ? ` on page ${pageIndex}` : ""}. Run analyze_page first, or target by uuid/selection.`,
       );
     }
     return matches.map((m) => m.uuid);

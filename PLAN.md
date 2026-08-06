@@ -394,10 +394,10 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
 
 ### Fase 5 — Semântica + layout assistant (1,5–2 dias)
 
-- [ ] `analyze_page` + roles no model
-- [ ] `layout_assistant` modes: diagnose | fix | preview
-- [ ] Portar heurísticas de overlap/stack de `lib/text-layout` (pts, não EMU)
-- [ ] Exemplos de fluxo agent: scan → analyze → batch → summarize
+- [x] `analyze_page` + roles no model
+- [x] `layout_assistant` modes: diagnose | fix | preview
+- [x] Portar heurísticas de overlap/stack de `lib/text-layout` (pts, não EMU)
+- [x] Exemplos de fluxo agent: scan → analyze → batch → summarize
 
 **Done:** “aumenta o espaço entre os títulos” resolve via roles + layout_assistant/batch.
 
@@ -640,4 +640,34 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 - `replace_asset` ≡ `relinkAsset` no dispatcher (mesma op de relink)
 - Spec MVP de style: fontFamily / fontStyle / fontSizePt / leading / spaceBefore/After; create também aceita `basedOn` + `fromTarget`
 
-**Próximo:** Fase 5 — Semântica + layout assistant.
+**Próximo (na época):** Fase 5 — Semântica + layout assistant.
+
+---
+
+### 2026-08-06 — Fase 5 (Semântica + layout assistant) ✅
+
+**Branch:** `mcp-indesign-v1`
+
+| Feito | Detalhe |
+| --- | --- |
+| Semântica | `src/session/semantic.ts` — roles Header/Subtitle/Body/Caption/Image/Background/Logo/Decorative/Unknown |
+| Tool | `analyze_page` grava `item.role` no SessionStore |
+| Text layout | `src/lib/text-layout.ts` + helpers em `geometry.ts` (pts: overlap, stack, estimate height) |
+| Assistant | `layout_assistant` modes `diagnose` \| `preview` \| `fix` via `src/lib/layout-assistant.ts` |
+| Docs | README com fluxo scan → analyze → batch/assistant → summarize |
+| Doctor | smoke analyze_page + diagnose (dry-run plan) |
+
+**Validação `npm run doctor` (máquina local, doc aberto):**
+
+- Documento: **Test mcp** — UUID estável
+- `analyze_page` page 0: role **Subtitle** (1 item)
+- `layout_assistant` diagnose: textBoxes=1, overlaps=0, needsFix=false
+- Doctor OK
+
+**Decisões:**
+
+- Classificação 100% heurística no MCP (não no dispatcher)
+- `layout_assistant` fix/preview gera commands de batch (`move`/`resize`) e reusa `execute_batch` / `preview_batch`
+- Um Header por página: extras demote para Subtitle
+
+**Próximo:** Fase 6 — polimento README / system prompts / tag v0.1.0.

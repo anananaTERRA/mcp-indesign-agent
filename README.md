@@ -10,9 +10,9 @@ Arquitetura: **Document Model em cache**, **UUIDs persistentes**, **~15–25 too
 
 ## Status
 
-**Fase 4 (styles + assets)** — paragraph/character/object styles + links (list/relink/embed/check missing), com `modelPatch` no cache.
+**Fase 5 (semântica + layout assistant)** — `analyze_page` grava roles no model; `layout_assistant` (diagnose | preview | fix) porta heurísticas de overlap/stack em points.
 
-Tools: sessão + batch/layout (Fases 2–3) + `list_styles`, `apply_style`, `create_style`, `update_style`, `list_assets`, `check_missing_links`, `relink_asset`, `replace_asset`, `embed_asset`.
+Tools: sessão + batch/layout/styles/assets + `analyze_page` + `layout_assistant`.
 
 ## Prerequisites
 
@@ -35,18 +35,29 @@ npm run doctor
 INDESIGN_APP_NAME="Adobe InDesign 2026" npm run doctor
 ```
 
-Com `.indd` aberto: UUID estável + smoke `moveItem` + `applyStyle` + links.
+Com `.indd` aberto: UUID estável + smoke move/styles/assets + `analyze_page` + diagnose.
 
 ## Fluxo do agent (recomendado)
 
 ```
 1. ping_indesign
 2. scan_document              → cache + snapshot before
-3. list_styles / list_assets  → do cache (refresh se precisar)
-4. preview_batch (opcional)   → dry-run no model
-5. execute_batch              → um round-trip; modelPatch no cache
-6. summarize_changes
+3. analyze_page               → roles (Header, Body, Image…)
+4. layout_assistant diagnose  → overlaps / margens (opcional)
+5. preview_batch | layout_assistant preview
+6. execute_batch | layout_assistant fix
+7. summarize_changes
 ```
+
+Exemplo editorial: “aumenta o espaço entre os títulos”
+
+```
+scan_document → analyze_page(pageIndex=0)
+→ execute_batch([{ op: "stack", target: { role: "Header", pageIndex: 0 }, gapPt: 24 }])
+→ summarize_changes
+```
+
+Ou com overlap: `layout_assistant` mode=`preview`/`fix` (minGapPt em points).
 
 Geometria em **points**. Targets: `uuid` | `{ uuid }` | `{ role, pageIndex? }` | `{ selection: true }`.
 

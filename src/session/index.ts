@@ -8,3 +8,11 @@ export {
   type SnapshotLabel,
   type SnapshotMeta,
 } from "./snapshots.js";
+export {
+  SEMANTIC_ROLES,
+  analyzePage,
+  applyRolesToModel,
+  type AnalyzePageResult,
+  type RoleAssignment,
+  type SemanticRole,
+} from "./semantic.js";
