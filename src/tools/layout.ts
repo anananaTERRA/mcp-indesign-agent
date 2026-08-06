@@ -30,10 +30,12 @@ const TargetField = z.union([
 ]);
 
 export function registerLayoutTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "layout_operation",
-    "Layout helpers: align | distribute | center | stack | applyMargins. Prefer execute_batch when combining with other ops.",
     {
+      description:
+        "Layout helpers: align | distribute | center | stack | applyMargins. Thin wrapper — prefer execute_batch when combining with other ops. Requires scan_document; role targets need analyze_page.",
+      inputSchema: {
       op: z.enum(["align", "distribute", "center", "stack", "applyMargins"]),
       target: TargetField.describe(
         "Usually {selection:true} or multiple items via role; uuid for a single item",
@@ -46,6 +48,8 @@ export function registerLayoutTools(server: McpServer): void {
       startPt: z.number().optional(),
       marginPt: z.number().nonnegative().optional(),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async (args) => {
       const { op, target, timeoutSec, align, axis, gapPt, startPt, marginPt } =
@@ -81,10 +85,12 @@ export function registerLayoutTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "layout_assistant",
-    "Diagnose or fix page layout issues (overlapping/tight text, items outside margins). Modes: diagnose | preview | fix. Prefer analyze_page first when talking about titles/headers by role. Units are points.",
     {
+      description:
+        "Diagnose or fix page layout (overlapping/tight text, items outside margins). Modes: diagnose | preview | fix. Prefer after scan_document (+ analyze_page for title roles). Units are points. fix applies via execute_batch.",
+      inputSchema: {
       mode: z
         .enum(["diagnose", "preview", "fix"])
         .describe(
@@ -114,6 +120,8 @@ export function registerLayoutTools(server: McpServer): void {
         .optional()
         .describe("Also clamp outside-safe items (default true for preview/fix)"),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async (args) => {
       const model = sessionStore.get();

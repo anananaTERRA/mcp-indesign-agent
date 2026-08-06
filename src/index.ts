@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { AGENT_INSTRUCTIONS } from "./agent-instructions.js";
 import { registerAssetTools } from "./tools/assets.js";
 import { registerBatchTools } from "./tools/batch.js";
 import { registerLayoutTools } from "./tools/layout.js";
@@ -9,10 +10,17 @@ import { registerSemanticTools } from "./tools/semantic.js";
 import { registerSessionTools } from "./tools/session.js";
 import { registerStyleTools } from "./tools/styles.js";
 
-const server = new McpServer({
-  name: "mcp-indesign-agent",
-  version: "0.0.1",
-});
+const VERSION = "0.1.0";
+
+const server = new McpServer(
+  {
+    name: "mcp-indesign-agent",
+    version: VERSION,
+  },
+  {
+    instructions: AGENT_INSTRUCTIONS,
+  },
+);
 
 registerSessionTools(server);
 registerSemanticTools(server);

@@ -37,10 +37,12 @@ const StyleSpec = z.object({
 });
 
 export function registerStyleTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "list_styles",
-    "List paragraph / character / object styles from the Document Model cache (or refresh from InDesign).",
     {
+      description:
+        "List paragraph / character / object styles from the Document Model cache (or refresh from InDesign). Prefer after scan_document; use apply_style / execute_batch applyStyle to apply.",
+      inputSchema: {
       styleKind: StyleKind.optional().describe(
         "If set, return only that kind; otherwise all three",
       ),
@@ -49,6 +51,8 @@ export function registerStyleTools(server: McpServer): void {
         .optional()
         .describe("If true, re-read styles from InDesign (default: cache)"),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async ({ styleKind, refresh, timeoutSec }) => {
       try {
@@ -110,14 +114,18 @@ export function registerStyleTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "apply_style",
-    "Apply a paragraph, character, or object style to target item(s). Prefer execute_batch when combining with other ops.",
     {
+      description:
+        "Apply a paragraph, character, or object style to target item(s). Prefer execute_batch when combining with other ops.",
+      inputSchema: {
       target: TargetField,
       style: z.string().min(1),
       styleKind: StyleKind.optional().describe("Default: paragraph"),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async ({ target, style, styleKind, timeoutSec }) => {
       try {
@@ -144,10 +152,12 @@ export function registerStyleTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "create_style",
-    "Create a paragraph/character/object style (from selection item, basedOn, and/or font size spec).",
     {
+      description:
+        "Create a paragraph/character/object style (from selection item, basedOn, and/or font size spec).",
+      inputSchema: {
       name: z.string().min(1),
       styleKind: StyleKind.optional(),
       basedOn: z.string().optional(),
@@ -156,6 +166,8 @@ export function registerStyleTools(server: McpServer): void {
       ),
       spec: StyleSpec.optional(),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(
       async ({ name, styleKind, basedOn, fromTarget, spec, timeoutSec }) => {
@@ -193,10 +205,12 @@ export function registerStyleTools(server: McpServer): void {
     ),
   );
 
-  server.tool(
+  server.registerTool(
     "update_style",
-    "Update an existing style definition (spec, basedOn, rename, or copy from an item).",
     {
+      description:
+        "Update an existing style definition (spec, basedOn, rename, or copy from an item).",
+      inputSchema: {
       style: z.string().min(1).describe("Existing style name"),
       styleKind: StyleKind.optional(),
       basedOn: z.string().optional(),
@@ -204,6 +218,8 @@ export function registerStyleTools(server: McpServer): void {
       newName: z.string().min(1).optional(),
       spec: StyleSpec.optional(),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(
       async ({

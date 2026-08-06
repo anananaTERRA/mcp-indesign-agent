@@ -36,20 +36,24 @@ const commandsField = z
   .min(1)
   .max(50)
   .describe(
-    "Batch commands. Prefer one batch over many tools. Ops: move, resize, delete, duplicate, setText, replaceText, setFont, setFill, align, distribute, center, stack, applyMargins. target: uuid | {uuid} | {role, pageIndex?} | {selection:true}. Geometry in points.",
+    "Batch commands (prefer ONE execute_batch over many tools). Ops: move, resize, delete, duplicate, setText, replaceText, setFont, setFill, align, distribute, center, stack, applyMargins, applyStyle, createStyle, updateStyle, relinkAsset, replaceAsset, embedAsset. target: uuid | {uuid} | {role, pageIndex?} | {selection:true}. Geometry in points. Requires prior scan_document (and analyze_page for role targets).",
   );
 
 export function registerBatchTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "snapshot",
-    "Capture or inspect Document Model snapshots. Modes: before | after | list | diff. Capture uses the current session cache (run scan_document first).",
     {
+      description:
+        "Capture or inspect Document Model snapshots. Modes: before | after | list | diff. Capture uses the current session cache (run scan_document first).",
+      inputSchema: {
       mode: z
         .enum(["before", "after", "list", "diff"])
         .describe("before/after capture; list metas; diff two snapshots"),
       beforeId: z.string().uuid().optional(),
       afterId: z.string().uuid().optional(),
       label: z.string().optional(),
+    
+      },
     },
     withToolError(async ({ mode, beforeId, afterId, label }) => {
       if (mode === "list") {
@@ -101,12 +105,16 @@ export function registerBatchTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "summarize_changes",
-    "Diff snapshot before vs after into agent-readable summary lines. Defaults to the last before/after pair.",
     {
+      description:
+        "Diff snapshot before vs after into agent-readable summary. Call after execute_batch (or layout_assistant fix). Defaults to the last before/after pair from scan_document + batch.",
+      inputSchema: {
       beforeId: z.string().uuid().optional(),
       afterId: z.string().uuid().optional(),
+    
+      },
     },
     withToolError(async ({ beforeId, afterId }) => {
       const before = beforeId ?? snapshotStore.getLastBefore()?.id;
@@ -136,11 +144,15 @@ export function registerBatchTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "preview_batch",
-    "Dry-run a batch against the cached Document Model (no InDesign writes). Resolves targets (uuid/role/selection) and simulates geometry changes.",
     {
+      description:
+        "Dry-run a batch against the cached Document Model (no InDesign writes). Call after scan_document. Prefer preview_batch before a large execute_batch.",
+      inputSchema: {
       commands: commandsField,
+    
+      },
     },
     withToolError(async ({ commands }) => {
       try {
@@ -159,16 +171,20 @@ export function registerBatchTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "execute_batch",
-    "Preferred mutation path: resolve targets → run ops in one dispatcher round-trip → apply modelPatch to cache. Prefer this over execute_operation / layout_operation for multi-step edits.",
     {
+      description:
+        "Preferred mutation path: resolve targets → one dispatcher round-trip → modelPatch on cache. ALWAYS prefer this over execute_operation / layout_operation when combining ops. Typical flow: scan_document → (analyze_page) → execute_batch → summarize_changes.",
+      inputSchema: {
       commands: commandsField,
       captureAfterSnapshot: z
         .boolean()
         .optional()
         .describe("Capture snapshot after (default true)"),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async ({ commands, captureAfterSnapshot, timeoutSec }) => {
       try {

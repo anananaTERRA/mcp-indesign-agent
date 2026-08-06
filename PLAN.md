@@ -403,10 +403,12 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
 
 ### Fase 6 — Polimento (½–1 dia)
 
-- [ ] README (Automation macOS, app name, Cursor mcp.json)
-- [ ] System/tool descriptions orientando o agent ao fluxo scan→batch
-- [ ] Teto de tools documentado; ops novas só no dispatcher
-- [ ] Tag v0.1.0
+- [x] README (Automation macOS, app name, Cursor mcp.json)
+- [x] System/tool descriptions orientando o agent ao fluxo scan→batch
+- [x] Teto de tools documentado; ops novas só no dispatcher
+- [x] Tag v0.1.0
+
+**Done:** README + MCP `instructions` + descrições das tools; pacote `0.1.0`.
 
 ---
 
@@ -419,7 +421,7 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
       "command": "node",
       "args": ["/ABSOLUTE/PATH/TO/mcp-indesign-agent/dist/index.js"],
       "env": {
-        "INDESIGN_APP_NAME": "Adobe InDesign 2025",
+        "INDESIGN_APP_NAME": "Adobe InDesign 2026",
         "INDESIGN_BRIDGE": "applescript"
       }
     }
@@ -671,3 +673,25 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 - Um Header por página: extras demote para Subtitle
 
 **Próximo:** Fase 6 — polimento README / system prompts / tag v0.1.0.
+
+---
+
+### 2026-08-06 — Fase 6 (Polimento) ✅
+
+**Branch:** `mcp-indesign-v1` · **Tag:** `v0.1.0`
+
+| Feito | Detalhe |
+| --- | --- |
+| README | Automation macOS, `INDESIGN_APP_NAME`, mcp.json, fluxo agent, tabela de tools, teto ~25 |
+| Instructions | `src/agent-instructions.ts` passado ao `McpServer` (`instructions`) |
+| Tool copy | Descrições empurram scan → analyze → execute_batch → summarize |
+| API MCP | Tools migradas de `server.tool` (deprecated) → `server.registerTool` |
+| Version | `package.json` + server version → `0.1.0` |
+| Tag | `v0.1.0` |
+
+**Decisões:**
+
+- 22 tools registradas (abaixo do teto ~25); novas capacidades = `op` no dispatcher
+- Thin tools (`execute_operation`, `layout_operation`) mantidas, mas copy deixa claro que batch é o caminho
+
+**Próximo:** uso real no Cursor; candidatos v0.2 (export PDF/IDML, UXP adapter).

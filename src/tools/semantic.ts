@@ -10,10 +10,12 @@ import { sessionStore } from "../session/index.js";
 import { textResult, withToolError } from "./helpers.js";
 
 export function registerSemanticTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "analyze_page",
-    "Classify page items into semantic roles (Header, Subtitle, Body, Caption, Image, Background, Logo, Decorative, Unknown) and store roles on the Document Model. Prefer this after scan_document so targets like {role:\"Header\"} work in execute_batch.",
     {
+      description:
+        "Classify page items into semantic roles (Header, Subtitle, Body, Caption, Image, Background, Logo, Decorative, Unknown) and store them on the Document Model. Call after scan_document so batch targets like {role:\"Header\"} work. Typical flow: scan → analyze_page → execute_batch → summarize_changes.",
+      inputSchema: {
       pageIndex: z
         .number()
         .int()
@@ -23,6 +25,8 @@ export function registerSemanticTools(server: McpServer): void {
         .boolean()
         .optional()
         .describe("Write roles into session cache (default true)"),
+    
+      },
     },
     withToolError(async ({ pageIndex, persist }) => {
       const model = sessionStore.get();

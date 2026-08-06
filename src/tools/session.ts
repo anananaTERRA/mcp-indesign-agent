@@ -62,17 +62,22 @@ async function runScan(
 }
 
 export function registerSessionTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "ping_indesign",
-    "Check if Adobe InDesign is reachable via the local bridge (app open, version, active document).",
     {
-      timeoutSec: z
-        .number()
-        .int()
-        .min(1)
-        .max(300)
-        .optional()
-        .describe("Optional override; prefer INDESIGN_SCRIPT_TIMEOUT_SEC for the adapter"),
+      description:
+        "Check if Adobe InDesign is reachable (app open, version, active document). Call first in a session before scan_document.",
+      inputSchema: {
+        timeoutSec: z
+          .number()
+          .int()
+          .min(1)
+          .max(300)
+          .optional()
+          .describe(
+            "Optional override; prefer INDESIGN_SCRIPT_TIMEOUT_SEC for the adapter",
+          ),
+      },
     },
     withToolError(async ({ timeoutSec }) => {
       try {
@@ -87,23 +92,28 @@ export function registerSessionTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "scan_document",
-    "Scan the active InDesign document into the session Document Model cache. Writes stable mcp:<uuid> labels on page items. Prefer this once per session before planning edits.",
     {
-      depth: z
-        .enum(["minimal", "full"])
-        .optional()
-        .describe("full (default) includes styles, layers, links, selection; minimal is pages+items only"),
-      writeUuids: z
-        .boolean()
-        .optional()
-        .describe("Write mcp:<uuid> script labels (default true)"),
-      captureSnapshot: z
-        .enum(["before", "after", "none"])
-        .optional()
-        .describe("Optionally capture a snapshot after scan (default: before)"),
-      timeoutSec: z.number().int().min(1).max(300).optional(),
+      description:
+        "Scan the active InDesign document into the session Document Model cache and write stable mcp:<uuid> labels. Call ONCE per session before planning edits; then use execute_batch (not repeated scans).",
+      inputSchema: {
+        depth: z
+          .enum(["minimal", "full"])
+          .optional()
+          .describe(
+            "full (default) includes styles, layers, links, selection; minimal is pages+items only",
+          ),
+        writeUuids: z
+          .boolean()
+          .optional()
+          .describe("Write mcp:<uuid> script labels (default true)"),
+        captureSnapshot: z
+          .enum(["before", "after", "none"])
+          .optional()
+          .describe("Optionally capture a snapshot after scan (default: before)"),
+        timeoutSec: z.number().int().min(1).max(300).optional(),
+      },
     },
     withToolError(async ({ depth, writeUuids, captureSnapshot, timeoutSec }) => {
       try {
@@ -126,7 +136,11 @@ export function registerSessionTools(server: McpServer): void {
           fromCache: false,
           summary: sessionStore.summary(false),
           snapshot: snapshot
-            ? { id: snapshot.id, label: snapshot.label, capturedAt: snapshot.capturedAt }
+            ? {
+                id: snapshot.id,
+                label: snapshot.label,
+                capturedAt: snapshot.capturedAt,
+              }
             : null,
         });
       } catch (err) {
@@ -138,17 +152,22 @@ export function registerSessionTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "refresh_document",
-    "Invalidate and reload the Document Model from InDesign (full rescan). Use after manual edits in InDesign or when the cache may be stale.",
     {
-      depth: z.enum(["minimal", "full"]).optional(),
-      pages: z
-        .array(z.number().int().min(0))
-        .optional()
-        .describe("Reserved for page-scoped refresh (currently always full document)"),
-      writeUuids: z.boolean().optional(),
-      timeoutSec: z.number().int().min(1).max(300).optional(),
+      description:
+        "Invalidate and reload the Document Model from InDesign. Use only after manual edits in InDesign or when the cache may be stale — not before every mutation.",
+      inputSchema: {
+        depth: z.enum(["minimal", "full"]).optional(),
+        pages: z
+          .array(z.number().int().min(0))
+          .optional()
+          .describe(
+            "Reserved for page-scoped refresh (currently always full document)",
+          ),
+        writeUuids: z.boolean().optional(),
+        timeoutSec: z.number().int().min(1).max(300).optional(),
+      },
     },
     withToolError(async ({ depth, writeUuids, timeoutSec }) => {
       try {
@@ -174,69 +193,80 @@ export function registerSessionTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "get_document_model",
-    "Return a summary of the cached Document Model without rescanning InDesign (unless forceRefresh or cache empty).",
     {
-      forceRefresh: z
-        .boolean()
-        .optional()
-        .describe("If true, rescan before returning"),
-      maxAgeMs: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("If cache older than this, rescan"),
-      includeItems: z
-        .boolean()
-        .optional()
-        .describe("Include full items array (can be large)"),
-      timeoutSec: z.number().int().min(1).max(300).optional(),
+      description:
+        "Return a summary of the cached Document Model without rescanning InDesign (unless forceRefresh or cache empty).",
+      inputSchema: {
+        forceRefresh: z
+          .boolean()
+          .optional()
+          .describe("If true, rescan before returning"),
+        maxAgeMs: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("If cache older than this, rescan"),
+        includeItems: z
+          .boolean()
+          .optional()
+          .describe("Include full items array (can be large)"),
+        timeoutSec: z.number().int().min(1).max(300).optional(),
+      },
     },
-    withToolError(async ({ forceRefresh, maxAgeMs, includeItems, timeoutSec }) => {
-      try {
-        const needsScan =
-          forceRefresh === true ||
-          !sessionStore.hasModel() ||
-          (maxAgeMs !== undefined && !sessionStore.isFresh(maxAgeMs));
+    withToolError(
+      async ({ forceRefresh, maxAgeMs, includeItems, timeoutSec }) => {
+        try {
+          const needsScan =
+            forceRefresh === true ||
+            !sessionStore.hasModel() ||
+            (maxAgeMs !== undefined && !sessionStore.isFresh(maxAgeMs));
 
-        if (needsScan) {
-          const bridge = bridgeFromTimeout(timeoutSec);
-          const scan = await runScan(bridge, { depth: "full", writeUuids: true });
-          sessionStore.set(scanResultToModel(scan));
-        }
+          if (needsScan) {
+            const bridge = bridgeFromTimeout(timeoutSec);
+            const scan = await runScan(bridge, {
+              depth: "full",
+              writeUuids: true,
+            });
+            sessionStore.set(scanResultToModel(scan));
+          }
 
-        const model = sessionStore.get();
-        const fromCache = !needsScan;
-        const payload: Record<string, unknown> = {
-          ok: true,
-          fromCache,
-          summary: sessionStore.summary(fromCache),
-        };
-        if (includeItems && model) {
-          payload.items = model.items;
-          payload.selection = model.selection;
-          payload.styles = model.styles;
-          payload.links = model.links;
-          payload.layers = model.layers;
+          const model = sessionStore.get();
+          const fromCache = !needsScan;
+          const payload: Record<string, unknown> = {
+            ok: true,
+            fromCache,
+            summary: sessionStore.summary(fromCache),
+          };
+          if (includeItems && model) {
+            payload.items = model.items;
+            payload.selection = model.selection;
+            payload.styles = model.styles;
+            payload.links = model.links;
+            payload.layers = model.layers;
+          }
+          return textResult(payload);
+        } catch (err) {
+          if (err instanceof BridgeError) {
+            return textResult(bridgeErrorPayload(err));
+          }
+          throw err;
         }
-        return textResult(payload);
-      } catch (err) {
-        if (err instanceof BridgeError) {
-          return textResult(bridgeErrorPayload(err));
-        }
-        throw err;
-      }
-    }),
+      },
+    ),
   );
 
-  server.tool(
+  server.registerTool(
     "get_selection",
-    "Read the current InDesign selection as stable UUIDs and sync them into the session cache.",
     {
-      writeUuids: z.boolean().optional(),
-      timeoutSec: z.number().int().min(1).max(300).optional(),
+      description:
+        "Read the current InDesign selection as stable UUIDs and sync them into the session cache.",
+      inputSchema: {
+        writeUuids: z.boolean().optional(),
+        timeoutSec: z.number().int().min(1).max(300).optional(),
+      },
     },
     withToolError(async ({ writeUuids, timeoutSec }) => {
       try {

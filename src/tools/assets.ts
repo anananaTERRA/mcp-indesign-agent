@@ -34,10 +34,12 @@ function syncLinksFromResult(links: LinkInfo[] | undefined): void {
 }
 
 export function registerAssetTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     "list_assets",
-    "List placed links/assets (path, status, page) from cache or refresh from InDesign.",
     {
+      description:
+        "List placed links/assets (path, status, page) from cache or refresh from InDesign.",
+      inputSchema: {
       status: z
         .string()
         .optional()
@@ -49,6 +51,8 @@ export function registerAssetTools(server: McpServer): void {
         .optional()
         .describe("If true, re-read links from InDesign (default: cache)"),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async ({ status, refresh, timeoutSec }) => {
       try {
@@ -102,11 +106,15 @@ export function registerAssetTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "check_missing_links",
-    "Report missing / inaccessible / out-of-date links in the active document.",
     {
+      description:
+        "Report missing / inaccessible / out-of-date links in the active document.",
+      inputSchema: {
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async ({ timeoutSec }) => {
       try {
@@ -141,13 +149,17 @@ export function registerAssetTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "relink_asset",
-    "Relink a placed asset to a new file path on disk.",
     {
+      description:
+        "Relink a placed asset to a new file path on disk.",
+      inputSchema: {
       ...LinkRef,
       filePath: z.string().min(1).describe("Absolute path to the replacement file"),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async ({ linkId, name, filePath, timeoutSec }) => {
       try {
@@ -174,13 +186,17 @@ export function registerAssetTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "replace_asset",
-    "Replace a placed asset with another file (same as relink_asset).",
     {
+      description:
+        "Replace a placed asset with another file (same as relink_asset).",
+      inputSchema: {
       ...LinkRef,
       filePath: z.string().min(1),
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async ({ linkId, name, filePath, timeoutSec }) => {
       try {
@@ -207,12 +223,16 @@ export function registerAssetTools(server: McpServer): void {
     }),
   );
 
-  server.tool(
+  server.registerTool(
     "embed_asset",
-    "Embed a linked asset into the document (unlink from disk).",
     {
+      description:
+        "Embed a linked asset into the document (unlink from disk).",
+      inputSchema: {
       ...LinkRef,
       timeoutSec: z.number().int().min(1).max(300).optional(),
+    
+      },
     },
     withToolError(async ({ linkId, name, timeoutSec }) => {
       try {

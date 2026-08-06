@@ -1,6 +1,6 @@
 {
   "name": "mcp-indesign-agent",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "MCP server for editing Adobe InDesign via natural language in Cursor",
   "type": "module",
   "bin": {
