@@ -1,6 +1,11 @@
 export type BridgeKind = "applescript";
 
-export type DispatcherOp = "ping" | "noop" | "scanDocument" | string;
+export type DispatcherOp =
+  | "ping"
+  | "noop"
+  | "scanDocument"
+  | "getSelection"
+  | string;
 
 export interface DispatcherCommand {
   op: DispatcherOp;

@@ -11,6 +11,12 @@ import {
   BridgeError,
   AppleScriptExtendScriptAdapter,
 } from "../src/bridge/index.ts";
+import {
+  scanResultToModel,
+  sessionStore,
+  snapshotStore,
+  type ScanDocumentResult,
+} from "../src/session/index.ts";
 
 function printSection(title: string): void {
   console.log(`\n=== ${title} ===`);
@@ -81,23 +87,56 @@ async function main(): Promise<void> {
   console.log(JSON.stringify(noop.results[0], null, 2));
 
   if (ping.document) {
-    printSection("scanDocument (minimal)");
-    const scan = await bridge.run({
+    printSection("scanDocument (full + UUID labels)");
+    const scanRaw = await bridge.run({
       requestId: "doctor-scan",
-      commands: [{ op: "scanDocument", depth: "minimal" }],
+      commands: [{ op: "scanDocument", depth: "full", writeUuids: true }],
     });
-    const body = scan.results[0] as {
-      meta?: { name?: string; pageCount?: number };
-      pages?: unknown[];
-      items?: unknown[];
-    };
+    const body = scanRaw.results[0] as ScanDocumentResult;
     console.log(`meta.name: ${body.meta?.name}`);
     console.log(`meta.pageCount: ${body.meta?.pageCount}`);
+    console.log(`meta.generation: ${body.meta?.generation}`);
     console.log(`pages: ${body.pages?.length ?? 0}`);
     console.log(`items: ${body.items?.length ?? 0}`);
+    console.log(`layers: ${body.layers?.length ?? 0}`);
+    console.log(`styles.paragraph: ${body.styles?.paragraph?.length ?? 0}`);
+    console.log(`links: ${body.links?.length ?? 0}`);
+    console.log(`selection: ${body.selection?.length ?? 0}`);
+
+    const withUuid = (body.items ?? []).filter((it) => it.uuid);
+    console.log(`items with uuid: ${withUuid.length}/${body.items?.length ?? 0}`);
+    if (withUuid[0]) {
+      console.log(
+        `sample item: uuid=${withUuid[0].uuid} type=${withUuid[0].type} page=${withUuid[0].pageIndex}`,
+      );
+    }
+
+    const model = scanResultToModel(body);
+    sessionStore.set(model);
+    const before = snapshotStore.capture("before", model);
+    console.log(`session cache: ${sessionStore.summary(false).itemCount} items`);
+    console.log(`snapshot before: ${before.id}`);
+
+    printSection("scanDocument (2nd call — UUID reuse smoke)");
+    const scan2 = await bridge.run({
+      requestId: "doctor-scan-2",
+      commands: [{ op: "scanDocument", depth: "minimal", writeUuids: true }],
+    });
+    const body2 = scan2.results[0] as ScanDocumentResult;
+    const uuids1 = new Set((body.items ?? []).map((i) => i.uuid));
+    const uuids2 = (body2.items ?? []).map((i) => i.uuid);
+    const stable = uuids2.filter((u) => uuids1.has(u)).length;
+    console.log(`uuid overlap with first scan: ${stable}/${uuids2.length}`);
+
+    printSection("getSelection");
+    const sel = await bridge.run({
+      requestId: "doctor-selection",
+      commands: [{ op: "getSelection", writeUuids: true }],
+    });
+    console.log(JSON.stringify(sel.results[0], null, 2));
   } else {
     printSection("scanDocument");
-    console.log("Skipped (no active document). Open a .indd to exercise scan.");
+    console.log("Skipped (no active document). Open a .indd to exercise scan + UUID.");
   }
 
   console.log("\nDoctor OK — JSON round-trip via dispatcher succeeded.");

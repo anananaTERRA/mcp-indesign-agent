@@ -10,14 +10,16 @@ Arquitetura: **Document Model em cache**, **UUIDs persistentes**, **~15–25 too
 
 ## Status
 
-**Fase 1 (bridge)** — `AppleScriptExtendScriptAdapter` + `extendscript/dispatcher.jsx` (`ping`, `noop`, `scanDocument` mínimo). `ping_indesign` usa o bridge real.
+**Fase 2 (Document Model + UUID + cache)** — scan rico grava `mcp:<uuid>` nos labels; `SessionStore` em processo; tools de sessão + snapshots.
+
+Tools: `ping_indesign`, `scan_document`, `refresh_document`, `get_document_model`, `get_selection`, `snapshot`, `summarize_changes`.
 
 ## Prerequisites
 
 - macOS
 - Node.js 20+
 - Adobe InDesign instalado e **aberto** (Automation/acessibilidade se o macOS pedir)
-- Documento `.indd` aberto para exercitar `scanDocument`
+- Documento `.indd` aberto para exercitar `scan_document`
 
 ## Install & build
 
@@ -28,7 +30,7 @@ npm run build
 
 ## Doctor (round-trip)
 
-Com o InDesign aberto:
+Com o InDesign aberto (idealmente com um `.indd`):
 
 ```bash
 npm run doctor
@@ -36,7 +38,7 @@ npm run doctor
 INDESIGN_APP_NAME="Adobe InDesign 2026" npm run doctor
 ```
 
-Esperado: versão do app + nome do doc ativo (se houver) via dispatcher JSON.
+Esperado: versão do app, scan com UUIDs estáveis na 2ª chamada, e `getSelection`.
 
 Scripts:
 
@@ -46,7 +48,19 @@ Scripts:
 | `npm start` | Sobe o MCP (`node dist/index.js`) |
 | `npm run dev` | MCP via `tsx` (sem build) |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run doctor` | Probe InDesign (ping / noop / scan) |
+| `npm run doctor` | Probe InDesign (ping / scan / UUID / selection) |
+
+## Fluxo do agent (Fase 2)
+
+```
+1. ping_indesign
+2. scan_document          → Document Model no cache (+ snapshot before)
+3. get_document_model     → usa cache (sem reler)
+4. get_selection          → uuids da seleção
+5. … edições (Fase 3+) …
+6. refresh_document / snapshot after
+7. summarize_changes
+```
 
 ## Connect to Cursor
 
@@ -67,7 +81,7 @@ Após o build, adicione ao MCP config (`~/.cursor/mcp.json` ou `.cursor/mcp.json
 }
 ```
 
-Reinicie o Cursor (ou recarregue os MCP servers) e chame `ping_indesign`.
+Reinicie o Cursor (ou recarregue os MCP servers) e chame `ping_indesign` → `scan_document`.
 
 ## Env
 

@@ -366,11 +366,11 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
 
 ### Fase 2 — Document Model + UUID + cache (1,5–2 dias)
 
-- [ ] Scan rico → SessionStore
-- [ ] Gravação de `mcp:<uuid>` em labels
-- [ ] `scan_document`, `refresh_document`, `get_document_model`
-- [ ] `get_selection`
-- [ ] Snapshots before/after + `summarize_changes` básico
+- [x] Scan rico → SessionStore
+- [x] Gravação de `mcp:<uuid>` em labels
+- [x] `scan_document`, `refresh_document`, `get_document_model`
+- [x] `get_selection`
+- [x] Snapshots before/after + `summarize_changes` básico
 
 **Done:** scan no Cursor; segunda chamada usa cache; items têm UUID estável após group/ungroup smoke test.
 
@@ -546,4 +546,28 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 - `scanDocument` mínimo lista `pages` + `items` (tipo/bounds/label/textPreview) **sem** gravar UUID — UUID na Fase 2
 - Erros do adapter: `APP_CLOSED` \| `APP_NOT_FOUND` \| `NO_DOCUMENT` \| `TIMEOUT` \| `JSX_EXCEPTION` \| `BRIDGE` \| `CONFIG`
 
-**Próximo:** Fase 2 — Document Model + UUID em `label` + SessionStore / cache.
+**Próximo (na época):** Fase 2 — Document Model + UUID em `label` + SessionStore / cache.
+
+---
+
+### 2026-08-06 — Fase 2 (Document Model + UUID + cache) ✅
+
+**Branch:** `mcp-indesign-v1`
+
+| Feito | Detalhe |
+| --- | --- |
+| Model | `src/session/document-model.ts` — meta, pages, items (uuid), layers, styles, swatches, fonts, links, masters, selection |
+| Cache | `SessionStore` process-wide; `get_document_model` serve cache sem reler |
+| Snapshots | `snapshot` (before/after/list/diff) + `summarize_changes` |
+| Dispatcher | `scanDocument` depth `full` grava `mcp:<uuid>` em `item.label`; op `getSelection` |
+| Tools | `scan_document`, `refresh_document`, `get_document_model`, `get_selection`, `snapshot`, `summarize_changes` |
+| Doctor | 2º scan verifica overlap de UUIDs; exercita `getSelection` |
+
+**Decisões:**
+
+- UUID gerado no ExtendScript (`Math.random` v4-ish); prefixo `mcp:` no label, tools expõem só o UUID
+- `scan_document` captura snapshot `before` por padrão
+- `pages` em `refresh_document` reservado (sempre full doc por enquanto)
+- Semântica (`analyze_page`) fica na Fase 5
+
+**Próximo:** Fase 3 — schema Zod de commands + `execute_batch` / `preview_batch` + ops move/resize/texto.

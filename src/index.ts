@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { registerBatchTools } from "./tools/batch.js";
 import { registerSessionTools } from "./tools/session.js";
 
 const server = new McpServer({
@@ -9,6 +10,7 @@ const server = new McpServer({
 });
 
 registerSessionTools(server);
+registerBatchTools(server);
 
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
