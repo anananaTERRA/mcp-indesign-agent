@@ -349,10 +349,10 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
 
 ### Fase 0 — Bootstrap (½ dia)
 
-- [ ] package.json, tsconfig, .gitignore
-- [ ] Entry MCP com `ping_indesign` stub
-- [ ] README mínimo + este PLAN
-- [ ] Commit inicial
+- [x] package.json, tsconfig, .gitignore
+- [x] Entry MCP com `ping_indesign` stub
+- [x] README mínimo + este PLAN
+- [x] Commit inicial
 
 ### Fase 1 — BridgeAdapter + dispatcher (1–1,5 dia) — **crítico**
 
