@@ -521,7 +521,7 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 
 ### 2026-08-06 — Fase 1 (BridgeAdapter + dispatcher) ✅
 
-**Branch:** `mcp-indesign-v1` · **Status:** implementado localmente (ainda sem commit dedicado desta fase)
+**Branch:** `mcp-indesign-v1` · **Commit:** `cc24dd0` (*Add InDesign bridge and dispatcher (phase 1).*) · push em `origin/mcp-indesign-v1`
 
 | Feito | Detalhe |
 | --- | --- |
