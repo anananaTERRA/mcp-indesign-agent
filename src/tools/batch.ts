@@ -1,7 +1,43 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  AppleScriptExtendScriptAdapter,
+  BridgeError,
+  createBridge,
+  type BridgeAdapter,
+} from "../bridge/index.js";
+import {
+  executeBatch,
+  PlannerError,
+  previewBatch,
+} from "../commands/index.js";
 import { sessionStore, snapshotStore } from "../session/index.js";
 import { textResult, withToolError } from "./helpers.js";
+
+function bridgeFromTimeout(timeoutSec?: number): BridgeAdapter {
+  if (timeoutSec !== undefined) {
+    return new AppleScriptExtendScriptAdapter({ timeoutSec });
+  }
+  return createBridge();
+}
+
+function bridgeErrorPayload(err: BridgeError) {
+  return {
+    ok: false,
+    code: err.code,
+    message: err.message,
+    details: err.details ?? null,
+  };
+}
+
+/** Shared command list schema for batch tools (JSON array validated in commands layer). */
+const commandsField = z
+  .array(z.record(z.unknown()))
+  .min(1)
+  .max(50)
+  .describe(
+    "Batch commands. Prefer one batch over many tools. Ops: move, resize, delete, duplicate, setText, replaceText, setFont, setFill, align, distribute, center, stack, applyMargins. target: uuid | {uuid} | {role, pageIndex?} | {selection:true}. Geometry in points.",
+  );
 
 export function registerBatchTools(server: McpServer): void {
   server.tool(
@@ -11,20 +47,9 @@ export function registerBatchTools(server: McpServer): void {
       mode: z
         .enum(["before", "after", "list", "diff"])
         .describe("before/after capture; list metas; diff two snapshots"),
-      beforeId: z
-        .string()
-        .uuid()
-        .optional()
-        .describe("For mode=diff; defaults to last before snapshot"),
-      afterId: z
-        .string()
-        .uuid()
-        .optional()
-        .describe("For mode=diff; defaults to last after snapshot"),
-      label: z
-        .string()
-        .optional()
-        .describe("Optional custom label when capturing (overrides mode label)"),
+      beforeId: z.string().uuid().optional(),
+      afterId: z.string().uuid().optional(),
+      label: z.string().optional(),
     },
     withToolError(async ({ mode, beforeId, afterId, label }) => {
       if (mode === "list") {
@@ -91,7 +116,7 @@ export function registerBatchTools(server: McpServer): void {
         return textResult({
           ok: false,
           message:
-            "Missing before/after snapshots. Typical flow: scan_document (captures before) → edits → refresh_document → snapshot mode=after → summarize_changes.",
+            "Missing before/after snapshots. Typical flow: scan_document → execute_batch → summarize_changes.",
           snapshots: snapshotStore.list(),
         });
       }
@@ -108,6 +133,62 @@ export function registerBatchTools(server: McpServer): void {
         },
         diff,
       });
+    }),
+  );
+
+  server.tool(
+    "preview_batch",
+    "Dry-run a batch against the cached Document Model (no InDesign writes). Resolves targets (uuid/role/selection) and simulates geometry changes.",
+    {
+      commands: commandsField,
+    },
+    withToolError(async ({ commands }) => {
+      try {
+        const preview = previewBatch(commands);
+        return textResult(preview);
+      } catch (err) {
+        if (err instanceof PlannerError || err instanceof z.ZodError) {
+          return textResult({
+            ok: false,
+            message: err instanceof Error ? err.message : String(err),
+            issues: err instanceof z.ZodError ? err.issues : undefined,
+          });
+        }
+        throw err;
+      }
+    }),
+  );
+
+  server.tool(
+    "execute_batch",
+    "Preferred mutation path: resolve targets → run ops in one dispatcher round-trip → apply modelPatch to cache. Prefer this over execute_operation / layout_operation for multi-step edits.",
+    {
+      commands: commandsField,
+      captureAfterSnapshot: z
+        .boolean()
+        .optional()
+        .describe("Capture snapshot after (default true)"),
+      timeoutSec: z.number().int().min(1).max(300).optional(),
+    },
+    withToolError(async ({ commands, captureAfterSnapshot, timeoutSec }) => {
+      try {
+        const result = await executeBatch(bridgeFromTimeout(timeoutSec), commands, {
+          captureAfterSnapshot: captureAfterSnapshot !== false,
+        });
+        return textResult(result);
+      } catch (err) {
+        if (err instanceof BridgeError) {
+          return textResult(bridgeErrorPayload(err));
+        }
+        if (err instanceof PlannerError || err instanceof z.ZodError) {
+          return textResult({
+            ok: false,
+            message: err instanceof Error ? err.message : String(err),
+            issues: err instanceof z.ZodError ? err.issues : undefined,
+          });
+        }
+        throw err;
+      }
     }),
   );
 }

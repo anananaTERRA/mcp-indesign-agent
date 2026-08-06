@@ -10,16 +10,16 @@ Arquitetura: **Document Model em cache**, **UUIDs persistentes**, **~15–25 too
 
 ## Status
 
-**Fase 2 (Document Model + UUID + cache)** — scan rico grava `mcp:<uuid>` nos labels; `SessionStore` em processo; tools de sessão + snapshots.
+**Fase 3 (batch + ops)** — `execute_batch` / `preview_batch`, planner (uuid | role | selection), ops geométricas/texto no dispatcher, `modelPatch` atualiza o cache.
 
-Tools: `ping_indesign`, `scan_document`, `refresh_document`, `get_document_model`, `get_selection`, `snapshot`, `summarize_changes`.
+Tools: sessão (Fase 2) + `preview_batch`, `execute_batch`, `execute_operation`, `layout_operation`.
 
 ## Prerequisites
 
 - macOS
 - Node.js 20+
-- Adobe InDesign instalado e **aberto** (Automation/acessibilidade se o macOS pedir)
-- Documento `.indd` aberto para exercitar `scan_document`
+- Adobe InDesign instalado e **aberto**
+- Documento `.indd` aberto para scan / batch
 
 ## Install & build
 
@@ -30,41 +30,28 @@ npm run build
 
 ## Doctor (round-trip)
 
-Com o InDesign aberto (idealmente com um `.indd`):
-
 ```bash
 npm run doctor
-# ou force a versão:
 INDESIGN_APP_NAME="Adobe InDesign 2026" npm run doctor
 ```
 
-Esperado: versão do app, scan com UUIDs estáveis na 2ª chamada, e `getSelection`.
+Com `.indd` aberto: UUID estável + smoke `moveItem` (+20pt / −20pt).
 
-Scripts:
-
-| Script | Função |
-| --- | --- |
-| `npm run build` | Compila TypeScript → `dist/` |
-| `npm start` | Sobe o MCP (`node dist/index.js`) |
-| `npm run dev` | MCP via `tsx` (sem build) |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run doctor` | Probe InDesign (ping / scan / UUID / selection) |
-
-## Fluxo do agent (Fase 2)
+## Fluxo do agent (recomendado)
 
 ```
 1. ping_indesign
-2. scan_document          → Document Model no cache (+ snapshot before)
-3. get_document_model     → usa cache (sem reler)
-4. get_selection          → uuids da seleção
-5. … edições (Fase 3+) …
-6. refresh_document / snapshot after
-7. summarize_changes
+2. scan_document              → cache + snapshot before
+3. preview_batch (opcional)   → dry-run no model
+4. execute_batch              → um round-trip; modelPatch no cache
+5. summarize_changes
 ```
 
-## Connect to Cursor
+Geometria em **points**. Targets: `uuid` | `{ uuid }` | `{ role, pageIndex? }` | `{ selection: true }`.
 
-Após o build, adicione ao MCP config (`~/.cursor/mcp.json` ou `.cursor/mcp.json` do projeto):
+Ops de batch: `move`, `resize`, `delete`, `duplicate`, `setText`, `replaceText`, `setFont`, `setFill`, `align`, `distribute`, `center`, `stack`, `applyMargins`.
+
+## Connect to Cursor
 
 ```json
 {
@@ -80,8 +67,6 @@ Após o build, adicione ao MCP config (`~/.cursor/mcp.json` ou `.cursor/mcp.json
   }
 }
 ```
-
-Reinicie o Cursor (ou recarregue os MCP servers) e chame `ping_indesign` → `scan_document`.
 
 ## Env
 

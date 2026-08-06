@@ -376,12 +376,12 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
 
 ### Fase 3 — Batch + ops geométricas/texto (1,5–2 dias)
 
-- [ ] Schema Zod de commands
-- [ ] `execute_batch` / `preview_batch`
-- [ ] Ops: move, resize, delete, setText, replaceText, setFont, setFill
-- [ ] `layout_operation` (align / distribute / center / stack)
-- [ ] Planner resolve `target` por uuid | role | selection
-- [ ] modelPatch atualiza cache
+- [x] Schema Zod de commands
+- [x] `execute_batch` / `preview_batch`
+- [x] Ops: move, resize, delete, setText, replaceText, setFont, setFill
+- [x] `layout_operation` (align / distribute / center / stack)
+- [x] Planner resolve `target` por uuid | role | selection
+- [x] modelPatch atualiza cache
 
 **Done:** “mova o título 20pt” via role ou selection, em **um** batch, sem rescan.
 
@@ -552,7 +552,7 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 
 ### 2026-08-06 — Fase 2 (Document Model + UUID + cache) ✅
 
-**Branch:** `mcp-indesign-v1`
+**Branch:** `mcp-indesign-v1` · **Commit:** `43758ef` (*Add Document Model, UUID labels, and session cache (phase 2).*)
 
 | Feito | Detalhe |
 | --- | --- |
@@ -563,6 +563,15 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 | Tools | `scan_document`, `refresh_document`, `get_document_model`, `get_selection`, `snapshot`, `summarize_changes` |
 | Doctor | 2º scan verifica overlap de UUIDs; exercita `getSelection` |
 
+**Validação `npm run doctor` (máquina local, doc aberto):**
+
+- Apps: **Adobe InDesign 2026** / 2025 → usando **2026** (`21.2.0.30`)
+- Documento: **Test mcp** (unsaved, 3 páginas)
+- Scan full: `items: 1`, `items with uuid: 1/1` — TextFrame `7fa6443d-5d84-41ea-b4e5-cc5c1f3ce952` (page 0)
+- UUID reuse smoke: **`uuid overlap with first scan: 1/1`**
+- `getSelection`: mesmo UUID + `textPreview: "text frame"`
+- Doctor OK
+
 **Decisões:**
 
 - UUID gerado no ExtendScript (`Math.random` v4-ish); prefixo `mcp:` no label, tools expõem só o UUID
@@ -570,4 +579,35 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 - `pages` em `refresh_document` reservado (sempre full doc por enquanto)
 - Semântica (`analyze_page`) fica na Fase 5
 
-**Próximo:** Fase 3 — schema Zod de commands + `execute_batch` / `preview_batch` + ops move/resize/texto.
+**Próximo (na época):** Fase 3 — schema Zod de commands + `execute_batch` / ops.
+
+---
+
+### 2026-08-06 — Fase 3 (Batch + ops geométricas/texto) ✅
+
+**Branch:** `mcp-indesign-v1`
+
+| Feito | Detalhe |
+| --- | --- |
+| Schema | `src/commands/schema.ts` — ops + `TargetSchema` (uuid / role / selection) |
+| Planner | `src/commands/planner.ts` — resolve → dispatcher commands |
+| Batch | `preview_batch` (dry-run no cache) + `execute_batch` (bridge + modelPatch) |
+| Geometry | `src/lib/geometry.ts` — align / distribute / stack / margins em pt |
+| Dispatcher | `moveItem`, `resizeItem`, `deleteItem`, `duplicateItem`, `setText`, `replaceText`, `setFont`, `setFill`, `alignItems`, `distributeItems`, `centerItems`, `stackItems`, `applyMargins`; unidades POINTS durante mutação; `modelPatch` agregado |
+| Tools | `preview_batch`, `execute_batch`, `execute_operation`, `layout_operation` |
+| Doctor | smoke `moveItem` +20pt / −20pt |
+
+**Validação `npm run doctor` (máquina local, doc aberto):**
+
+- Documento: **Test mcp** — UUID estável `1/1`
+- `moveItem` +20pt Y: **ok**, `modelPatch.updated=1`
+- restore −20pt: **ok**, `modelPatch.updated=1`
+- Doctor OK
+
+**Decisões:**
+
+- Caminho recomendado do agent: sempre `execute_batch` (thin tools só para 1 op)
+- Role targets funcionam quando `item.role` existir (Fase 5 `analyze_page`); até lá usar uuid / selection
+- `duplicate` / `applyMargins` incluídos além do checklist mínimo
+
+**Próximo:** Fase 4 — Styles + Assets.

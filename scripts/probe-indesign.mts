@@ -134,6 +134,23 @@ async function main(): Promise<void> {
       commands: [{ op: "getSelection", writeUuids: true }],
     });
     console.log(JSON.stringify(sel.results[0], null, 2));
+
+    if (withUuid[0]) {
+      printSection("moveItem (+20pt Y) then restore (phase 3 smoke)");
+      const uuid = withUuid[0].uuid;
+      const move = await bridge.run({
+        requestId: "doctor-move",
+        commands: [{ op: "moveItem", target: uuid, dy: 20 }],
+      });
+      console.log(`move ok: ${Boolean(move.ok)} patch.updated=${move.modelPatch?.updated?.length ?? 0}`);
+      const restore = await bridge.run({
+        requestId: "doctor-move-back",
+        commands: [{ op: "moveItem", target: uuid, dy: -20 }],
+      });
+      console.log(
+        `restore ok: ${Boolean(restore.ok)} patch.updated=${restore.modelPatch?.updated?.length ?? 0}`,
+      );
+    }
   } else {
     printSection("scanDocument");
     console.log("Skipped (no active document). Open a .indd to exercise scan + UUID.");

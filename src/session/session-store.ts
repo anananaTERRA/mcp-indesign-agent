@@ -56,7 +56,7 @@ export class SessionStore {
   applyPatch(patch: ModelPatch | null | undefined): void {
     if (!patch || !this.model) return;
 
-    const updated = (patch.updated ?? []) as DocumentItem[];
+    const updated = (patch.updated ?? []) as Array<Partial<DocumentItem> & { uuid: string }>;
     const removed = (patch.removed ?? []) as Array<string | { uuid: string }>;
 
     if (updated.length === 0 && removed.length === 0) {
@@ -75,7 +75,29 @@ export class SessionStore {
         this.invalidate();
         return;
       }
-      byUuid.set(u.uuid, { ...byUuid.get(u.uuid), ...u } as DocumentItem);
+      const prev = byUuid.get(u.uuid);
+      const merged: DocumentItem = {
+        uuid: u.uuid,
+        pageIndex: u.pageIndex ?? prev?.pageIndex ?? 0,
+        itemIndex: u.itemIndex ?? prev?.itemIndex ?? 0,
+        type: u.type ?? prev?.type ?? "PageItem",
+        bounds: u.bounds !== undefined ? u.bounds : (prev?.bounds ?? null),
+        textPreview: u.textPreview ?? prev?.textPreview ?? "",
+        parentUuid:
+          u.parentUuid !== undefined
+            ? u.parentUuid
+            : (prev?.parentUuid ?? null),
+        layerName:
+          u.layerName !== undefined ? u.layerName : (prev?.layerName ?? null),
+        paragraphStyle:
+          u.paragraphStyle !== undefined
+            ? u.paragraphStyle
+            : (prev?.paragraphStyle ?? null),
+        fontSize:
+          u.fontSize !== undefined ? u.fontSize : (prev?.fontSize ?? null),
+        role: u.role !== undefined ? u.role : (prev?.role ?? null),
+      };
+      byUuid.set(u.uuid, merged);
     }
 
     items = Array.from(byUuid.values());

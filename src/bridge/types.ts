@@ -5,6 +5,19 @@ export type DispatcherOp =
   | "noop"
   | "scanDocument"
   | "getSelection"
+  | "moveItem"
+  | "resizeItem"
+  | "deleteItem"
+  | "duplicateItem"
+  | "setText"
+  | "replaceText"
+  | "setFont"
+  | "setFill"
+  | "alignItems"
+  | "distributeItems"
+  | "centerItems"
+  | "stackItems"
+  | "applyMargins"
   | string;
 
 export interface DispatcherCommand {
@@ -17,9 +30,28 @@ export interface DispatcherPayload {
   commands: DispatcherCommand[];
 }
 
+export interface ModelPatchItem {
+  uuid: string;
+  pageIndex?: number | null;
+  itemIndex?: number;
+  type?: string;
+  bounds?: {
+    y1: number;
+    x1: number;
+    y2: number;
+    x2: number;
+  } | null;
+  textPreview?: string;
+  parentUuid?: string | null;
+  layerName?: string | null;
+  paragraphStyle?: string | null;
+  fontSize?: number | null;
+  role?: string | null;
+}
+
 export interface ModelPatch {
-  updated?: unknown[];
-  removed?: unknown[];
+  updated?: ModelPatchItem[];
+  removed?: Array<string | { uuid: string }>;
 }
 
 export interface DispatcherErrorBody {
