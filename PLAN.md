@@ -356,11 +356,11 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
 
 ### Fase 1 — BridgeAdapter + dispatcher (1–1,5 dia) — **crítico**
 
-- [ ] `extendscript/dispatcher.jsx` com ops: `ping`, `scanDocument` (mínimo), `noop`
-- [ ] `AppleScriptExtendScriptAdapter`
-- [ ] `npm run doctor` round-trip JSON real
-- [ ] Detecção / config de `INDESIGN_APP_NAME`
-- [ ] Erros claros: app fechado, sem doc, timeout, JSX exception
+- [x] `extendscript/dispatcher.jsx` com ops: `ping`, `scanDocument` (mínimo), `noop`
+- [x] `AppleScriptExtendScriptAdapter`
+- [x] `npm run doctor` round-trip JSON real
+- [x] Detecção / config de `INDESIGN_APP_NAME`
+- [x] Erros claros: app fechado, sem doc, timeout, JSX exception
 
 **Done:** doctor imprime versão + nome do doc ativo via dispatcher.
 
@@ -498,4 +498,52 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 
 ---
 
-*Documento vivo: ao executar, marcar checkboxes e registrar decisões (ex.: formato exato do `modelPatch`, heurísticas de `analyze_page`) neste arquivo.*
+*Documento vivo: ao executar, marcar checkboxes e atualizar o execution log abaixo.*
+
+---
+
+## 16. Execution log
+
+### 2026-08-06 — Fase 0 (Bootstrap) ✅
+
+**Branch:** `mcp-indesign-v1` · **Commit:** `4a4edf9` (*Bootstrap MCP InDesign agent (phase 0).*) · push em `origin/mcp-indesign-v1` (main local alinhada a `origin/main` só com o PLAN)
+
+| Feito | Detalhe |
+| --- | --- |
+| Scaffold | `package.json`, `tsconfig.json`, `.gitignore`, `README.md` |
+| Entry MCP | `src/index.ts` + `src/tools/helpers.ts` (`textResult` / `withToolError`) |
+| Tool stub | `ping_indesign` em `src/tools/session.ts` (resposta stub até o bridge) |
+| Tooling local | Homebrew + nvm; Node **v24.19.0** / npm **11.17.0**; `npm install` + `typecheck` + `build` OK |
+
+**Notas:** sem OAuth; sem bridge real ainda.
+
+---
+
+### 2026-08-06 — Fase 1 (BridgeAdapter + dispatcher) ✅
+
+**Branch:** `mcp-indesign-v1` · **Status:** implementado localmente (ainda sem commit dedicado desta fase)
+
+| Feito | Detalhe |
+| --- | --- |
+| Dispatcher | `extendscript/dispatcher.jsx` — ops `ping`, `noop`, `scanDocument` (mínimo); I/O JSON via args `(requestPath, responsePath)` |
+| Bridge | `src/bridge/types.ts`, `detect.ts`, `applescript-adapter.ts`, `index.ts` (`createBridge`) |
+| Detecção app | Auto: maior ano em `/Applications/Adobe InDesign YYYY/…app`; override `INDESIGN_APP_NAME` |
+| Doctor | `scripts/probe-indesign.mts` → `npm run doctor` |
+| Tool | `ping_indesign` passou a usar o bridge real (erros tipados `BridgeError`) |
+| Docs | README atualizado (status Fase 1 + doctor); checkboxes Fase 1 marcados |
+
+**Validação `npm run doctor` (máquina local):**
+
+- Apps detectados: **Adobe InDesign 2026**, **Adobe InDesign 2025** → usando **2026**
+- Processo: running
+- Ping: `version 21.2.0.30`, locale `ENGLISH_LOCALE`, bridge `applescript`
+- Noop: OK (`echo: doctor`)
+- `scanDocument`: pulado — nenhum `.indd` aberto na sessão de teste
+
+**Decisões:**
+
+- Bridge I/O = JSON em `INDESIGN_TEMP_DIR` + AppleScript em **arquivo** (não `-e` multi-linha)
+- `scanDocument` mínimo lista `pages` + `items` (tipo/bounds/label/textPreview) **sem** gravar UUID — UUID na Fase 2
+- Erros do adapter: `APP_CLOSED` \| `APP_NOT_FOUND` \| `NO_DOCUMENT` \| `TIMEOUT` \| `JSX_EXCEPTION` \| `BRIDGE` \| `CONFIG`
+
+**Próximo:** Fase 2 — Document Model + UUID em `label` + SessionStore / cache.

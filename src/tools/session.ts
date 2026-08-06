@@ -1,36 +1,48 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  AppleScriptExtendScriptAdapter,
+  BridgeError,
+  createBridge,
+} from "../bridge/index.js";
 import { textResult, withToolError } from "./helpers.js";
 
-/**
- * Phase 0 stub — real ping via BridgeAdapter lands in Phase 1.
- */
 export function registerSessionTools(server: McpServer): void {
   server.tool(
     "ping_indesign",
-    "Check if Adobe InDesign is reachable (app open, version, active document). Phase 0 returns a stub until the bridge is wired.",
+    "Check if Adobe InDesign is reachable via the local bridge (app open, version, active document).",
     {
       timeoutSec: z
         .number()
         .int()
         .min(1)
-        .max(60)
+        .max(300)
         .optional()
-        .describe("Optional timeout in seconds (ignored by stub)"),
+        .describe("Optional override; prefer INDESIGN_SCRIPT_TIMEOUT_SEC for the adapter"),
     },
-    withToolError(async () => {
-      return textResult({
-        ok: false,
-        stub: true,
-        phase: 0,
-        message:
-          "Bridge not implemented yet. Phase 1 wires AppleScriptExtendScriptAdapter + dispatcher.jsx.",
-        hint: "Run `npm run doctor` after Phase 1 for a real round-trip.",
-        env: {
-          INDESIGN_APP_NAME: process.env.INDESIGN_APP_NAME ?? null,
-          INDESIGN_BRIDGE: process.env.INDESIGN_BRIDGE ?? "applescript",
-        },
-      });
+    withToolError(async ({ timeoutSec }) => {
+      try {
+        const bridge =
+          timeoutSec !== undefined
+            ? new AppleScriptExtendScriptAdapter({ timeoutSec })
+            : createBridge();
+        const info = await bridge.ping();
+        return textResult({ ok: true, ...info });
+      } catch (err) {
+        if (err instanceof BridgeError) {
+          return textResult({
+            ok: false,
+            code: err.code,
+            message: err.message,
+            details: err.details ?? null,
+            env: {
+              INDESIGN_APP_NAME: process.env.INDESIGN_APP_NAME ?? null,
+              INDESIGN_BRIDGE: process.env.INDESIGN_BRIDGE ?? "applescript",
+            },
+          });
+        }
+        throw err;
+      }
     }),
   );
 }
