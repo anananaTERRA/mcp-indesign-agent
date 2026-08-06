@@ -1,0 +1,41 @@
+#!/usr/bin/env node
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { AGENT_INSTRUCTIONS } from "./agent-instructions.js";
+import { registerAssetTools } from "./tools/assets.js";
+import { registerBatchTools } from "./tools/batch.js";
+import { registerLayoutTools } from "./tools/layout.js";
+import { registerOperationTools } from "./tools/operations.js";
+import { registerSemanticTools } from "./tools/semantic.js";
+import { registerSessionTools } from "./tools/session.js";
+import { registerStyleTools } from "./tools/styles.js";
+
+const VERSION = "0.1.0";
+
+const server = new McpServer(
+  {
+    name: "mcp-indesign-agent",
+    version: VERSION,
+  },
+  {
+    instructions: AGENT_INSTRUCTIONS,
+  },
+);
+
+registerSessionTools(server);
+registerSemanticTools(server);
+registerBatchTools(server);
+registerOperationTools(server);
+registerLayoutTools(server);
+registerStyleTools(server);
+registerAssetTools(server);
+
+async function main(): Promise<void> {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+main().catch((err: unknown) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+});

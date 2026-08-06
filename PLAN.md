@@ -349,64 +349,66 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
 
 ### Fase 0 — Bootstrap (½ dia)
 
-- [ ] package.json, tsconfig, .gitignore
-- [ ] Entry MCP com `ping_indesign` stub
-- [ ] README mínimo + este PLAN
-- [ ] Commit inicial
+- [x] package.json, tsconfig, .gitignore
+- [x] Entry MCP com `ping_indesign` stub
+- [x] README mínimo + este PLAN
+- [x] Commit inicial
 
 ### Fase 1 — BridgeAdapter + dispatcher (1–1,5 dia) — **crítico**
 
-- [ ] `extendscript/dispatcher.jsx` com ops: `ping`, `scanDocument` (mínimo), `noop`
-- [ ] `AppleScriptExtendScriptAdapter`
-- [ ] `npm run doctor` round-trip JSON real
-- [ ] Detecção / config de `INDESIGN_APP_NAME`
-- [ ] Erros claros: app fechado, sem doc, timeout, JSX exception
+- [x] `extendscript/dispatcher.jsx` com ops: `ping`, `scanDocument` (mínimo), `noop`
+- [x] `AppleScriptExtendScriptAdapter`
+- [x] `npm run doctor` round-trip JSON real
+- [x] Detecção / config de `INDESIGN_APP_NAME`
+- [x] Erros claros: app fechado, sem doc, timeout, JSX exception
 
 **Done:** doctor imprime versão + nome do doc ativo via dispatcher.
 
 ### Fase 2 — Document Model + UUID + cache (1,5–2 dias)
 
-- [ ] Scan rico → SessionStore
-- [ ] Gravação de `mcp:<uuid>` em labels
-- [ ] `scan_document`, `refresh_document`, `get_document_model`
-- [ ] `get_selection`
-- [ ] Snapshots before/after + `summarize_changes` básico
+- [x] Scan rico → SessionStore
+- [x] Gravação de `mcp:<uuid>` em labels
+- [x] `scan_document`, `refresh_document`, `get_document_model`
+- [x] `get_selection`
+- [x] Snapshots before/after + `summarize_changes` básico
 
 **Done:** scan no Cursor; segunda chamada usa cache; items têm UUID estável após group/ungroup smoke test.
 
 ### Fase 3 — Batch + ops geométricas/texto (1,5–2 dias)
 
-- [ ] Schema Zod de commands
-- [ ] `execute_batch` / `preview_batch`
-- [ ] Ops: move, resize, delete, setText, replaceText, setFont, setFill
-- [ ] `layout_operation` (align / distribute / center / stack)
-- [ ] Planner resolve `target` por uuid | role | selection
-- [ ] modelPatch atualiza cache
+- [x] Schema Zod de commands
+- [x] `execute_batch` / `preview_batch`
+- [x] Ops: move, resize, delete, setText, replaceText, setFont, setFill
+- [x] `layout_operation` (align / distribute / center / stack)
+- [x] Planner resolve `target` por uuid | role | selection
+- [x] modelPatch atualiza cache
 
 **Done:** “mova o título 20pt” via role ou selection, em **um** batch, sem rescan.
 
 ### Fase 4 — Styles + Assets (1,5 dia) — **antes de overlap**
 
-- [ ] `list_styles`, `apply_style`, `create_style`, `update_style`
-- [ ] `list_assets`, `relink_asset` / `replace_asset`, `check_missing_links`, `embed_asset`
+- [x] `list_styles`, `apply_style`, `create_style`, `update_style`
+- [x] `list_assets`, `relink_asset` / `replace_asset`, `check_missing_links`, `embed_asset`
 
 **Done:** aplicar paragraph style por comando natural; listar e relinkar imagem missing.
 
 ### Fase 5 — Semântica + layout assistant (1,5–2 dias)
 
-- [ ] `analyze_page` + roles no model
-- [ ] `layout_assistant` modes: diagnose | fix | preview
-- [ ] Portar heurísticas de overlap/stack de `lib/text-layout` (pts, não EMU)
-- [ ] Exemplos de fluxo agent: scan → analyze → batch → summarize
+- [x] `analyze_page` + roles no model
+- [x] `layout_assistant` modes: diagnose | fix | preview
+- [x] Portar heurísticas de overlap/stack de `lib/text-layout` (pts, não EMU)
+- [x] Exemplos de fluxo agent: scan → analyze → batch → summarize
 
 **Done:** “aumenta o espaço entre os títulos” resolve via roles + layout_assistant/batch.
 
 ### Fase 6 — Polimento (½–1 dia)
 
-- [ ] README (Automation macOS, app name, Cursor mcp.json)
-- [ ] System/tool descriptions orientando o agent ao fluxo scan→batch
-- [ ] Teto de tools documentado; ops novas só no dispatcher
-- [ ] Tag v0.1.0
+- [x] README (Automation macOS, app name, Cursor mcp.json)
+- [x] System/tool descriptions orientando o agent ao fluxo scan→batch
+- [x] Teto de tools documentado; ops novas só no dispatcher
+- [x] Tag v0.1.0
+
+**Done:** README + MCP `instructions` + descrições das tools; pacote `0.1.0`.
 
 ---
 
@@ -419,7 +421,7 @@ Sem OAuth. Setup = InDesign aberto + `doctor` verde + MCP apontando para `dist/i
       "command": "node",
       "args": ["/ABSOLUTE/PATH/TO/mcp-indesign-agent/dist/index.js"],
       "env": {
-        "INDESIGN_APP_NAME": "Adobe InDesign 2025",
+        "INDESIGN_APP_NAME": "Adobe InDesign 2026",
         "INDESIGN_BRIDGE": "applescript"
       }
     }
@@ -498,4 +500,198 @@ Pré-reqs: macOS, InDesign aberto com `.indd`, Node 20+, permissão Automation s
 
 ---
 
-*Documento vivo: ao executar, marcar checkboxes e registrar decisões (ex.: formato exato do `modelPatch`, heurísticas de `analyze_page`) neste arquivo.*
+*Documento vivo: ao executar, marcar checkboxes e atualizar o execution log abaixo.*
+
+---
+
+## 16. Execution log
+
+### 2026-08-06 — Fase 0 (Bootstrap) ✅
+
+**Branch:** `mcp-indesign-v1` · **Commit:** `4a4edf9` (*Bootstrap MCP InDesign agent (phase 0).*) · push em `origin/mcp-indesign-v1` (main local alinhada a `origin/main` só com o PLAN)
+
+| Feito | Detalhe |
+| --- | --- |
+| Scaffold | `package.json`, `tsconfig.json`, `.gitignore`, `README.md` |
+| Entry MCP | `src/index.ts` + `src/tools/helpers.ts` (`textResult` / `withToolError`) |
+| Tool stub | `ping_indesign` em `src/tools/session.ts` (resposta stub até o bridge) |
+| Tooling local | Homebrew + nvm; Node **v24.19.0** / npm **11.17.0**; `npm install` + `typecheck` + `build` OK |
+
+**Notas:** sem OAuth; sem bridge real ainda.
+
+---
+
+### 2026-08-06 — Fase 1 (BridgeAdapter + dispatcher) ✅
+
+**Branch:** `mcp-indesign-v1` · **Commit:** `cc24dd0` (*Add InDesign bridge and dispatcher (phase 1).*) · push em `origin/mcp-indesign-v1`
+
+| Feito | Detalhe |
+| --- | --- |
+| Dispatcher | `extendscript/dispatcher.jsx` — ops `ping`, `noop`, `scanDocument` (mínimo); I/O JSON via args `(requestPath, responsePath)` |
+| Bridge | `src/bridge/types.ts`, `detect.ts`, `applescript-adapter.ts`, `index.ts` (`createBridge`) |
+| Detecção app | Auto: maior ano em `/Applications/Adobe InDesign YYYY/…app`; override `INDESIGN_APP_NAME` |
+| Doctor | `scripts/probe-indesign.mts` → `npm run doctor` |
+| Tool | `ping_indesign` passou a usar o bridge real (erros tipados `BridgeError`) |
+| Docs | README atualizado (status Fase 1 + doctor); checkboxes Fase 1 marcados |
+
+**Validação `npm run doctor` (máquina local):**
+
+- Apps detectados: **Adobe InDesign 2026**, **Adobe InDesign 2025** → usando **2026**
+- Processo: running
+- Ping: `version 21.2.0.30`, locale `ENGLISH_LOCALE`, bridge `applescript`
+- Noop: OK (`echo: doctor`)
+- `scanDocument`: pulado — nenhum `.indd` aberto na sessão de teste
+
+**Decisões:**
+
+- Bridge I/O = JSON em `INDESIGN_TEMP_DIR` + AppleScript em **arquivo** (não `-e` multi-linha)
+- `scanDocument` mínimo lista `pages` + `items` (tipo/bounds/label/textPreview) **sem** gravar UUID — UUID na Fase 2
+- Erros do adapter: `APP_CLOSED` \| `APP_NOT_FOUND` \| `NO_DOCUMENT` \| `TIMEOUT` \| `JSX_EXCEPTION` \| `BRIDGE` \| `CONFIG`
+
+**Próximo (na época):** Fase 2 — Document Model + UUID em `label` + SessionStore / cache.
+
+---
+
+### 2026-08-06 — Fase 2 (Document Model + UUID + cache) ✅
+
+**Branch:** `mcp-indesign-v1` · **Commit:** `43758ef` (*Add Document Model, UUID labels, and session cache (phase 2).*)
+
+| Feito | Detalhe |
+| --- | --- |
+| Model | `src/session/document-model.ts` — meta, pages, items (uuid), layers, styles, swatches, fonts, links, masters, selection |
+| Cache | `SessionStore` process-wide; `get_document_model` serve cache sem reler |
+| Snapshots | `snapshot` (before/after/list/diff) + `summarize_changes` |
+| Dispatcher | `scanDocument` depth `full` grava `mcp:<uuid>` em `item.label`; op `getSelection` |
+| Tools | `scan_document`, `refresh_document`, `get_document_model`, `get_selection`, `snapshot`, `summarize_changes` |
+| Doctor | 2º scan verifica overlap de UUIDs; exercita `getSelection` |
+
+**Validação `npm run doctor` (máquina local, doc aberto):**
+
+- Apps: **Adobe InDesign 2026** / 2025 → usando **2026** (`21.2.0.30`)
+- Documento: **Test mcp** (unsaved, 3 páginas)
+- Scan full: `items: 1`, `items with uuid: 1/1` — TextFrame `7fa6443d-5d84-41ea-b4e5-cc5c1f3ce952` (page 0)
+- UUID reuse smoke: **`uuid overlap with first scan: 1/1`**
+- `getSelection`: mesmo UUID + `textPreview: "text frame"`
+- Doctor OK
+
+**Decisões:**
+
+- UUID gerado no ExtendScript (`Math.random` v4-ish); prefixo `mcp:` no label, tools expõem só o UUID
+- `scan_document` captura snapshot `before` por padrão
+- `pages` em `refresh_document` reservado (sempre full doc por enquanto)
+- Semântica (`analyze_page`) fica na Fase 5
+
+**Próximo (na época):** Fase 3 — schema Zod de commands + `execute_batch` / ops.
+
+---
+
+### 2026-08-06 — Fase 3 (Batch + ops geométricas/texto) ✅
+
+**Branch:** `mcp-indesign-v1`
+
+| Feito | Detalhe |
+| --- | --- |
+| Schema | `src/commands/schema.ts` — ops + `TargetSchema` (uuid / role / selection) |
+| Planner | `src/commands/planner.ts` — resolve → dispatcher commands |
+| Batch | `preview_batch` (dry-run no cache) + `execute_batch` (bridge + modelPatch) |
+| Geometry | `src/lib/geometry.ts` — align / distribute / stack / margins em pt |
+| Dispatcher | `moveItem`, `resizeItem`, `deleteItem`, `duplicateItem`, `setText`, `replaceText`, `setFont`, `setFill`, `alignItems`, `distributeItems`, `centerItems`, `stackItems`, `applyMargins`; unidades POINTS durante mutação; `modelPatch` agregado |
+| Tools | `preview_batch`, `execute_batch`, `execute_operation`, `layout_operation` |
+| Doctor | smoke `moveItem` +20pt / −20pt |
+
+**Validação `npm run doctor` (máquina local, doc aberto):**
+
+- Documento: **Test mcp** — UUID estável `1/1`
+- `moveItem` +20pt Y: **ok**, `modelPatch.updated=1`
+- restore −20pt: **ok**, `modelPatch.updated=1`
+- Doctor OK
+
+**Decisões:**
+
+- Caminho recomendado do agent: sempre `execute_batch` (thin tools só para 1 op)
+- Role targets funcionam quando `item.role` existir (Fase 5 `analyze_page`); até lá usar uuid / selection
+- `duplicate` / `applyMargins` incluídos além do checklist mínimo
+
+**Próximo:** Fase 5 — Semântica + layout assistant.
+
+---
+
+### 2026-08-06 — Fase 4 (Styles + Assets) ✅
+
+**Branch:** `mcp-indesign-v1`
+
+| Feito | Detalhe |
+| --- | --- |
+| Dispatcher | ops `listStyles`, `applyStyle`, `createStyle`, `updateStyle`, `listAssets`, `checkMissingLinks`, `relinkAsset`/`replaceAsset`, `embedAsset` |
+| Schema/planner | batch ops `applyStyle`, `createStyle`, `updateStyle`, `relinkAsset`, `replaceAsset`, `embedAsset` |
+| Cache | `modelPatch.styles` / `modelPatch.links` atualizam SessionStore sem rescan |
+| Tools | `list_styles`, `apply_style`, `create_style`, `update_style`, `list_assets`, `check_missing_links`, `relink_asset`, `replace_asset`, `embed_asset` |
+| Doctor | smoke `listStyles` + `applyStyle` + `listAssets` + `checkMissingLinks` |
+
+**Validação `npm run doctor` (máquina local, doc aberto):**
+
+- Documento: **Test mcp** — UUID estável
+- `listStyles`: paragraph styles listados
+- `applyStyle` paragraph: **ok**, `modelPatch.updated=1`
+- `listAssets`: 0 links; `checkMissingLinks`: missing=0, allOk=true
+- Doctor OK
+
+**Decisões:**
+
+- `list_*` serve do cache por padrão; `refresh:true` relê no InDesign
+- `replace_asset` ≡ `relinkAsset` no dispatcher (mesma op de relink)
+- Spec MVP de style: fontFamily / fontStyle / fontSizePt / leading / spaceBefore/After; create também aceita `basedOn` + `fromTarget`
+
+**Próximo (na época):** Fase 5 — Semântica + layout assistant.
+
+---
+
+### 2026-08-06 — Fase 5 (Semântica + layout assistant) ✅
+
+**Branch:** `mcp-indesign-v1`
+
+| Feito | Detalhe |
+| --- | --- |
+| Semântica | `src/session/semantic.ts` — roles Header/Subtitle/Body/Caption/Image/Background/Logo/Decorative/Unknown |
+| Tool | `analyze_page` grava `item.role` no SessionStore |
+| Text layout | `src/lib/text-layout.ts` + helpers em `geometry.ts` (pts: overlap, stack, estimate height) |
+| Assistant | `layout_assistant` modes `diagnose` \| `preview` \| `fix` via `src/lib/layout-assistant.ts` |
+| Docs | README com fluxo scan → analyze → batch/assistant → summarize |
+| Doctor | smoke analyze_page + diagnose (dry-run plan) |
+
+**Validação `npm run doctor` (máquina local, doc aberto):**
+
+- Documento: **Test mcp** — UUID estável
+- `analyze_page` page 0: role **Subtitle** (1 item)
+- `layout_assistant` diagnose: textBoxes=1, overlaps=0, needsFix=false
+- Doctor OK
+
+**Decisões:**
+
+- Classificação 100% heurística no MCP (não no dispatcher)
+- `layout_assistant` fix/preview gera commands de batch (`move`/`resize`) e reusa `execute_batch` / `preview_batch`
+- Um Header por página: extras demote para Subtitle
+
+**Próximo:** Fase 6 — polimento README / system prompts / tag v0.1.0.
+
+---
+
+### 2026-08-06 — Fase 6 (Polimento) ✅
+
+**Branch:** `mcp-indesign-v1` · **Tag:** `v0.1.0`
+
+| Feito | Detalhe |
+| --- | --- |
+| README | Automation macOS, `INDESIGN_APP_NAME`, mcp.json, fluxo agent, tabela de tools, teto ~25 |
+| Instructions | `src/agent-instructions.ts` passado ao `McpServer` (`instructions`) |
+| Tool copy | Descrições empurram scan → analyze → execute_batch → summarize |
+| API MCP | Tools migradas de `server.tool` (deprecated) → `server.registerTool` |
+| Version | `package.json` + server version → `0.1.0` |
+| Tag | `v0.1.0` |
+
+**Decisões:**
+
+- 22 tools registradas (abaixo do teto ~25); novas capacidades = `op` no dispatcher
+- Thin tools (`execute_operation`, `layout_operation`) mantidas, mas copy deixa claro que batch é o caminho
+
+**Próximo:** uso real no Cursor; candidatos v0.2 (export PDF/IDML, UXP adapter).

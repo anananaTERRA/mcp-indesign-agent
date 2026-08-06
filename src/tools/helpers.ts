@@ -1,0 +1,33 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+
+export function textResult(data: unknown): CallToolResult {
+  return {
+    content: [
+      {
+        type: "text",
+        text:
+          typeof data === "string" ? data : JSON.stringify(data, null, 2),
+      },
+    ],
+  };
+}
+
+export function errorResult(err: unknown): CallToolResult {
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    isError: true,
+    content: [{ type: "text", text: message }],
+  };
+}
+
+export function withToolError<T extends unknown[]>(
+  fn: (...args: T) => Promise<CallToolResult>,
+): (...args: T) => Promise<CallToolResult> {
+  return async (...args: T) => {
+    try {
+      return await fn(...args);
+    } catch (err) {
+      return errorResult(err);
+    }
+  };
+}
