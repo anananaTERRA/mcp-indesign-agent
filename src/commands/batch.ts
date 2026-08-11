@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { BridgeAdapter, ModelPatch } from "../bridge/types.js";
+import { toAscii } from "../lib/ascii.js";
 import {
   centerBoxOnPage,
   clampBoxToPage,
@@ -14,6 +15,12 @@ import {
 } from "../lib/geometry.js";
 import type { DocumentItem, DocumentModel } from "../session/document-model.js";
 import { sessionStore, snapshotStore } from "../session/index.js";
+import {
+  ensureCheckpoint,
+  recordInBatchCheckpoint,
+  type CheckpointGateResult,
+} from "./checkpoint.js";
+import { isMutatingOp, mutatingOpsIn } from "./mutations.js";
 import { planCommands, PlannerError, requireItems } from "./planner.js";
 import {
   type BatchCommand,
@@ -43,6 +50,18 @@ export interface ExecuteBatchResult {
   modelPatch: ModelPatch | null;
   summary: ReturnType<typeof sessionStore.summary>;
   snapshotAfter: { id: string; label: string } | null;
+  checkpoint: CheckpointGateResult;
+  transaction: { name: string; undoMode: "ENTIRE_SCRIPT" } | null;
+}
+
+export interface ExecuteBatchOptions {
+  captureAfterSnapshot?: boolean;
+  /** Deliberately mutate with no way back. Default false. */
+  skipCheckpoint?: boolean;
+  /** Reason tag for the auto checkpoint filename. */
+  checkpointTag?: string;
+  /** Label shown in InDesign's Undo menu; forced to ASCII. */
+  transactionName?: string;
 }
 
 function pageSize(model: DocumentModel): { width: number; height: number } {
@@ -78,6 +97,16 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
 
   for (const cmd of resolved) {
     switch (cmd.op) {
+      case "checkpoint": {
+        changes.push({
+          uuid: "",
+          op: "checkpoint",
+          fromBounds: null,
+          toBounds: null,
+          note: `saves an .indd copy to _checkpoints/ (tag "${cmd.tag ?? "batch"}") before the transaction; does not change the document`,
+        });
+        break;
+      }
       case "moveItem": {
         const box = boundsMap.get(cmd.target);
         if (!box) {
@@ -134,6 +163,42 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
               )
             : null,
           note: "creates new item with new uuid",
+        });
+        break;
+      }
+      case "createTextFrame": {
+        let toBounds = null;
+        if (
+          cmd.x !== undefined &&
+          cmd.y !== undefined &&
+          cmd.width !== undefined &&
+          cmd.height !== undefined
+        ) {
+          toBounds = {
+            y1: cmd.y,
+            x1: cmd.x,
+            y2: cmd.y + cmd.height,
+            x2: cmd.x + cmd.width,
+          };
+        } else if (cmd.belowTarget) {
+          const box = boundsMap.get(cmd.belowTarget);
+          if (box) {
+            const gap = cmd.gapPt ?? 12;
+            const w = cmd.width ?? box.width;
+            const h = cmd.height ?? Math.max(36, box.height * 1.5);
+            const x = cmd.x ?? box.x;
+            const y = cmd.y ?? box.y + box.height + gap;
+            toBounds = { y1: y, x1: x, y2: y + h, x2: x + w };
+          }
+        }
+        changes.push({
+          uuid: "",
+          op: "createTextFrame",
+          fromBounds: null,
+          toBounds,
+          note: cmd.text
+            ? `new text frame: ${cmd.text.slice(0, 60)}`
+            : "new empty text frame",
         });
         break;
       }
@@ -310,10 +375,19 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
   return { ok: true, resolved, changes, warnings };
 }
 
+/** Undo-menu label; ASCII because osascript-delivered JSX dies silently otherwise. */
+function defaultTransactionName(resolved: ResolvedDispatcherCommand[]): string {
+  const ops = resolved.map((c) => c.op);
+  const unique = ops.filter((op, i) => ops.indexOf(op) === i);
+  const head = unique.slice(0, 3).join(", ");
+  const rest = unique.length > 3 ? ` +${unique.length - 3} more` : "";
+  return `MCP: ${head}${rest}`;
+}
+
 export async function executeBatch(
   bridge: BridgeAdapter,
   commandsInput: unknown,
-  opts: { captureAfterSnapshot?: boolean } = {},
+  opts: ExecuteBatchOptions = {},
 ): Promise<ExecuteBatchResult> {
   const model = sessionStore.get();
   if (!model) {
@@ -325,44 +399,44 @@ export async function executeBatch(
   const commands = parseBatchCommands(commandsInput);
   const resolved = planCommands(commands, model);
 
+  const mutatingOps = mutatingOpsIn(resolved);
+  const generation = model.meta.generation;
+
+  // Gate first: no .indd copy on disk, no mutation. Throws CheckpointRequiredError.
+  const checkpoint = await ensureCheckpoint(bridge, model, {
+    mutatingOps,
+    carriesCheckpoint: resolved.some((c) => c.op === "checkpoint"),
+    skip: opts.skipCheckpoint === true,
+    tag: opts.checkpointTag,
+  });
+
+  const transactionName = toAscii(
+    opts.transactionName ?? defaultTransactionName(resolved),
+  ).slice(0, 100);
+
   const result = await bridge.run({
     requestId: randomUUID(),
     commands: resolved as unknown as Array<{ op: string; [k: string]: unknown }>,
+    transactionName,
   });
+
+  // Register copies the caller asked for inside the batch (including a
+  // checkpoint-only batch, which is how execute_operation op=checkpoint lands
+  // here) so the next mutation can reuse them.
+  const inBatch = recordInBatchCheckpoint(result.results, generation);
+  if (inBatch) {
+    checkpoint.path = inBatch.path;
+    checkpoint.tag = inBatch.tag;
+    checkpoint.capturedAt = inBatch.capturedAt;
+  }
 
   const patch = result.modelPatch ?? null;
   if (patch) {
     sessionStore.applyPatch(normalizePatch(patch));
-  } else {
-    // Mutations without patch — invalidate so next get forces refresh
-    const mutating = resolved.some((c) =>
-      [
-        "moveItem",
-        "resizeItem",
-        "deleteItem",
-        "duplicateItem",
-        "setText",
-        "replaceText",
-        "setFont",
-        "setFill",
-        "alignItems",
-        "distributeItems",
-        "centerItems",
-        "stackItems",
-        "applyMargins",
-        "applyStyle",
-        "createStyle",
-        "updateStyle",
-        "relinkAsset",
-        "replaceAsset",
-        "embedAsset",
-      ].includes(c.op),
-    );
-    if (mutating) {
-      // Soft-invalidate: keep model but mark generation dirty by clearing scanned? 
-      // Prefer keeping cache if we can merge from results
-      applyResultsFallback(resolved, result.results);
-    }
+  } else if (resolved.some((c) => isMutatingOp(c.op))) {
+    // Mutation without an aggregated patch — merge what the per-op results carry
+    // rather than dropping the cache on the floor.
+    applyResultsFallback(resolved, result.results);
   }
 
   let snapshotAfter: { id: string; label: string } | null = null;
@@ -381,6 +455,11 @@ export async function executeBatch(
     modelPatch: patch,
     summary: sessionStore.summary(true),
     snapshotAfter,
+    checkpoint,
+    transaction:
+      mutatingOps.length > 0
+        ? { name: transactionName, undoMode: "ENTIRE_SCRIPT" }
+        : null,
   };
 }
 

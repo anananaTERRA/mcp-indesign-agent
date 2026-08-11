@@ -6,14 +6,23 @@ import {
   createBridge,
   type BridgeAdapter,
 } from "../bridge/index.js";
-import { executeBatch, PlannerError, previewBatch } from "../commands/index.js";
+import {
+  CheckpointRequiredError,
+  executeBatch,
+  PlannerError,
+  previewBatch,
+} from "../commands/index.js";
 import {
   diagnosePageLayout,
   planLayoutFix,
   summarizeStackPlan,
 } from "../lib/layout-assistant.js";
 import { sessionStore } from "../session/index.js";
-import { textResult, withToolError } from "./helpers.js";
+import {
+  checkpointRefusalPayload,
+  textResult,
+  withToolError,
+} from "./helpers.js";
 
 function bridgeFromTimeout(timeoutSec?: number): BridgeAdapter {
   if (timeoutSec !== undefined) {
@@ -67,6 +76,9 @@ export function registerLayoutTools(server: McpServer): void {
         ]);
         return textResult(result);
       } catch (err) {
+        if (err instanceof CheckpointRequiredError) {
+          return textResult(checkpointRefusalPayload(err));
+        }
         if (err instanceof BridgeError) {
           return textResult({
             ok: false,
@@ -200,9 +212,16 @@ export function registerLayoutTools(server: McpServer): void {
         const execute = await executeBatch(
           bridgeFromTimeout(args.timeoutSec),
           plan.commands,
+          { checkpointTag: "layout-fix" },
         );
         return textResult({ ...payload, execute });
       } catch (err) {
+        if (err instanceof CheckpointRequiredError) {
+          return textResult({
+            ...checkpointRefusalPayload(err),
+            commands: plan.commands,
+          });
+        }
         if (err instanceof BridgeError) {
           return textResult({
             ok: false,

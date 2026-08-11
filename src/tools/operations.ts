@@ -6,8 +6,16 @@ import {
   createBridge,
   type BridgeAdapter,
 } from "../bridge/index.js";
-import { executeBatch, PlannerError } from "../commands/index.js";
-import { textResult, withToolError } from "./helpers.js";
+import {
+  CheckpointRequiredError,
+  executeBatch,
+  PlannerError,
+} from "../commands/index.js";
+import {
+  checkpointRefusalPayload,
+  textResult,
+  withToolError,
+} from "./helpers.js";
 
 function bridgeFromTimeout(timeoutSec?: number): BridgeAdapter {
   if (timeoutSec !== undefined) {
@@ -32,9 +40,10 @@ export function registerOperationTools(server: McpServer): void {
     "execute_operation",
     {
       description:
-        "Thin single-op wrapper around execute_batch (move/resize/delete/duplicate/setText/replaceText/setFont/setFill/applyStyle). Prefer execute_batch when issuing two or more ops.",
+        "Thin single-op wrapper around execute_batch (checkpoint/move/resize/delete/duplicate/setText/replaceText/setFont/setFill/applyStyle). op=checkpoint saves an .indd copy to _checkpoints/ next to the document and needs no target — run it before a risky sequence of edits. Prefer execute_batch when issuing two or more ops.",
       inputSchema: {
       op: z.enum([
+        "checkpoint",
         "move",
         "resize",
         "delete",
@@ -45,7 +54,25 @@ export function registerOperationTools(server: McpServer): void {
         "setFill",
         "applyStyle",
       ]),
-      target: TargetField,
+      target: TargetField.optional().describe(
+        "Required for every op except checkpoint",
+      ),
+      tag: z
+        .string()
+        .max(60)
+        .optional()
+        .describe("checkpoint only: short reason, becomes part of the filename"),
+      keep: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("checkpoint only: keep the N newest copies (default 12)"),
+      skipCheckpoint: z
+        .boolean()
+        .optional()
+        .describe("Mutate with no way back (default false)"),
       dx: z.number().optional(),
       dy: z.number().optional(),
       x: z.number().optional(),
@@ -75,17 +102,23 @@ export function registerOperationTools(server: McpServer): void {
       },
     },
     withToolError(async (args) => {
-      const { op, target, timeoutSec, ...rest } = args;
-      const command: Record<string, unknown> = { op, target };
+      const { op, target, timeoutSec, skipCheckpoint, ...rest } = args;
+      const command: Record<string, unknown> = { op };
+      if (target !== undefined) command.target = target;
       for (const [k, v] of Object.entries(rest)) {
         if (v !== undefined) command[k] = v;
       }
       try {
-        const result = await executeBatch(bridgeFromTimeout(timeoutSec), [
-          command,
-        ]);
+        const result = await executeBatch(
+          bridgeFromTimeout(timeoutSec),
+          [command],
+          { skipCheckpoint },
+        );
         return textResult(result);
       } catch (err) {
+        if (err instanceof CheckpointRequiredError) {
+          return textResult(checkpointRefusalPayload(err));
+        }
         if (err instanceof BridgeError) {
           return textResult({
             ok: false,

@@ -2,12 +2,22 @@
  * MCP InDesign Agent — unique runtime dispatcher (ExtendScript / ES3).
  * Invoked via: do script … with arguments { requestPath, responsePath }
  *
- * Ops: ping | noop | scanDocument | getSelection
- *      moveItem | resizeItem | deleteItem | duplicateItem
+ * Ops: ping | noop | scanDocument | getSelection | checkpoint
+ *      moveItem | resizeItem | deleteItem | duplicateItem | createTextFrame
  *      setText | replaceText | setFont | setFill
  *      alignItems | distributeItems | centerItems | stackItems | applyMargins
  *      listStyles | applyStyle | createStyle | updateStyle
  *      listAssets | checkMissingLinks | relinkAsset | embedAsset
+ *
+ * Every request that contains a mutating op runs inside a single
+ * UndoModes.ENTIRE_SCRIPT transaction, so one Cmd+Z undoes the whole request
+ * and a throw halfway through leaves the document untouched. `checkpoint` runs
+ * before that transaction and outside it: the safety copy has to survive the
+ * rollback it exists for.
+ *
+ * Names that come from caller input (transaction label, checkpoint tag) are
+ * forced to ASCII: JSX carrying non-ASCII through osascript has failed
+ * silently in practice, and checkpoint tags end up in filenames.
  */
 #target "InDesign"
 
@@ -89,6 +99,26 @@ function mcpSafePreview(text, maxLen) {
     return s.substring(0, maxLen);
   }
   return s;
+}
+
+/** Math.imul for ES3: 32-bit multiply without losing the high bits to floats. */
+function mcpImul(a, b) {
+  var ah = (a >>> 16) & 0xffff;
+  var al = a & 0xffff;
+  var bh = (b >>> 16) & 0xffff;
+  var bl = b & 0xffff;
+  return (al * bl + ((((ah * bl + al * bh) << 16) >>> 0) | 0)) | 0;
+}
+
+/** FNV-1a, mirrored in src/session/document-model.ts. */
+function mcpHash32(s) {
+  var h = 2166136261;
+  var i;
+  for (i = 0; i < s.length; i++) {
+    h = h ^ s.charCodeAt(i);
+    h = mcpImul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
 }
 
 function mcpUuid() {
@@ -576,6 +606,8 @@ function opScanDocument(cmd) {
     uuidList.push(items[i].uuid);
   }
   uuidList.sort();
+  // Same recipe as buildGeneration() in src/session/document-model.ts so a
+  // generation computed here and one computed after a modelPatch compare equal.
   var generation =
     String(mcpDocPath(d) || "unsaved") +
     "|p" +
@@ -583,7 +615,7 @@ function opScanDocument(cmd) {
     "|n" +
     items.length +
     "|" +
-    uuidList.join(",").length;
+    mcpHash32(uuidList.join(","));
 
   return {
     op: "scanDocument",
@@ -605,6 +637,124 @@ function opScanDocument(cmd) {
     links: links,
     masterPages: masterPages,
     selection: selection,
+  };
+}
+
+/* --- checkpoint: the only real undo net (runs outside the transaction) --- */
+
+function mcpPad2(n) {
+  return (n < 10 ? "0" : "") + n;
+}
+
+function mcpStamp(d) {
+  return (
+    d.getFullYear() +
+    mcpPad2(d.getMonth() + 1) +
+    mcpPad2(d.getDate()) +
+    "-" +
+    mcpPad2(d.getHours()) +
+    mcpPad2(d.getMinutes()) +
+    mcpPad2(d.getSeconds())
+  );
+}
+
+function mcpPruneCheckpoints(cpFolder, base, keep) {
+  var pruned = [];
+  try {
+    var all = cpFolder.getFiles(function (f) {
+      if (!(f instanceof File)) return false;
+      var n = String(decodeURI(f.name));
+      return n.indexOf(base + "-") === 0 && /\.indd$/i.test(n);
+    });
+    if (all.length <= keep) return pruned;
+    all.sort(function (a, b) {
+      return a.modified - b.modified;
+    });
+    var i;
+    for (i = 0; i < all.length - keep; i++) {
+      var victim = all[i].fsName;
+      try {
+        if (all[i].remove()) pruned.push(victim);
+      } catch (eRm) {
+        /* a locked/open copy is not worth failing the checkpoint over */
+      }
+    }
+  } catch (eP) {
+    /* pruning is housekeeping; never let it sink the checkpoint */
+  }
+  return pruned;
+}
+
+/**
+ * saveACopy of the live document (unsaved edits included) into
+ * <doc folder>/_checkpoints/<base>-<tag>-<YYYYMMDD-HHMMSS>.indd
+ */
+function opCheckpoint(cmd) {
+  var doc = mcpRequireDoc();
+
+  var folder = null;
+  try {
+    folder = doc.filePath;
+  } catch (eFp) {
+    folder = null;
+  }
+  if (!folder) {
+    throw new Error(
+      "CHECKPOINT_FAILED: document has never been saved, so there is no folder to copy it into. Save the .indd once, then retry.",
+    );
+  }
+
+  var cpFolder = new Folder(folder.fsName + "/_checkpoints");
+  if (!cpFolder.exists && !cpFolder.create()) {
+    throw new Error("CHECKPOINT_FAILED: could not create " + cpFolder.fsName);
+  }
+
+  var base = String(doc.name).replace(/\.indd$/i, "");
+  var tag = String(cmd.tag || "batch").replace(/[^A-Za-z0-9_-]/g, "-");
+  var out = new File(
+    cpFolder.fsName + "/" + base + "-" + tag + "-" + mcpStamp(new Date()) + ".indd",
+  );
+
+  try {
+    doc.saveACopy(out);
+  } catch (eSave) {
+    throw new Error(
+      "CHECKPOINT_FAILED: saveACopy to " +
+        out.fsName +
+        " failed (" +
+        (eSave && eSave.message ? eSave.message : eSave) +
+        ")",
+    );
+  }
+  if (!out.exists) {
+    throw new Error(
+      "CHECKPOINT_FAILED: saveACopy reported success but " +
+        out.fsName +
+        " is not on disk",
+    );
+  }
+
+  var keep =
+    cmd.keep !== undefined && cmd.keep !== null ? Number(cmd.keep) : 12;
+  if (!(keep > 0)) keep = 12;
+
+  var bytes = null;
+  try {
+    bytes = Number(out.length);
+  } catch (eLen) {
+    bytes = null;
+  }
+
+  return {
+    op: "checkpoint",
+    path: out.fsName,
+    folder: cpFolder.fsName,
+    tag: tag,
+    keep: keep,
+    bytes: bytes,
+    pruned: mcpPruneCheckpoints(cpFolder, base, keep),
+    documentName: String(doc.name),
+    documentPath: mcpDocPath(doc),
   };
 }
 
@@ -818,6 +968,144 @@ function opDuplicateItem(cmd) {
     op: "duplicateItem",
     target: cmd.target,
     created: mcpSerializeItem(dup, doc),
+  };
+}
+
+/**
+ * Create a new text frame on a page.
+ * Absolute: x, y, width, height (points).
+ * Or relative: belowTarget uuid + gapPt (inherits x/width from anchor when omitted).
+ */
+function opCreateTextFrame(cmd) {
+  var doc = mcpRequireDoc();
+  var pageIndex =
+    cmd.pageIndex !== undefined && cmd.pageIndex !== null
+      ? Number(cmd.pageIndex)
+      : 0;
+  if (pageIndex < 0 || pageIndex >= doc.pages.length) {
+    throw new Error(
+      "createTextFrame pageIndex out of range (0.." +
+        (doc.pages.length - 1) +
+        ")",
+    );
+  }
+  var page = doc.pages[pageIndex];
+
+  var x;
+  var y;
+  var width;
+  var height;
+  var gap =
+    cmd.gapPt !== undefined && cmd.gapPt !== null ? Number(cmd.gapPt) : 12;
+
+  if (cmd.belowTarget) {
+    var anchor = mcpFindByUuid(doc, cmd.belowTarget);
+    var ab = anchor.geometricBounds; // y1,x1,y2,x2
+    x = cmd.x !== undefined && cmd.x !== null ? Number(cmd.x) : ab[1];
+    width =
+      cmd.width !== undefined && cmd.width !== null
+        ? Number(cmd.width)
+        : ab[3] - ab[1];
+    height =
+      cmd.height !== undefined && cmd.height !== null
+        ? Number(cmd.height)
+        : Math.max(36, (ab[2] - ab[0]) * 1.5);
+    y = cmd.y !== undefined && cmd.y !== null ? Number(cmd.y) : ab[2] + gap;
+    try {
+      var ap = mcpPageIndexForItem(anchor, doc);
+      if (ap !== null && ap !== undefined) pageIndex = ap;
+      page = doc.pages[pageIndex];
+    } catch (eP) {
+      /* keep pageIndex */
+    }
+  } else {
+    if (
+      cmd.x === undefined ||
+      cmd.y === undefined ||
+      cmd.width === undefined ||
+      cmd.height === undefined
+    ) {
+      throw new Error(
+        "createTextFrame requires x,y,width,height — or belowTarget (+ optional gapPt)",
+      );
+    }
+    x = Number(cmd.x);
+    y = Number(cmd.y);
+    width = Number(cmd.width);
+    height = Number(cmd.height);
+  }
+
+  if (!(width > 0) || !(height > 0)) {
+    throw new Error("createTextFrame width/height must be positive");
+  }
+
+  var frame;
+  try {
+    frame = page.textFrames.add({
+      geometricBounds: [y, x, y + height, x + width],
+    });
+  } catch (eAdd) {
+    throw new Error("createTextFrame failed: " + (eAdd.message || eAdd));
+  }
+
+  var uuid = mcpUuid();
+  try {
+    frame.label = MCP_LABEL_PREFIX + uuid;
+  } catch (eL) {
+    /* ignore */
+  }
+
+  if (cmd.text !== undefined && cmd.text !== null) {
+    try {
+      frame.contents = String(cmd.text);
+    } catch (eT) {
+      throw new Error("createTextFrame set text failed: " + (eT.message || eT));
+    }
+  }
+
+  if (cmd.style) {
+    try {
+      var pStyle = mcpFindStyle(doc, "paragraph", String(cmd.style));
+      if (frame.texts && frame.texts.length > 0) {
+        frame.texts[0].appliedParagraphStyle = pStyle;
+      }
+    } catch (eS) {
+      throw new Error(
+        "createTextFrame style failed: " + (eS.message || eS),
+      );
+    }
+  }
+
+  if (
+    cmd.fontSizePt !== undefined &&
+    cmd.fontSizePt !== null &&
+    frame.texts &&
+    frame.texts.length > 0
+  ) {
+    try {
+      frame.texts[0].pointSize = Number(cmd.fontSizePt);
+    } catch (eF) {
+      /* optional */
+    }
+  }
+
+  if (cmd.fontFamily && frame.texts && frame.texts.length > 0) {
+    try {
+      if (cmd.fontStyle) {
+        frame.texts[0].appliedFont =
+          String(cmd.fontFamily) + "\t" + String(cmd.fontStyle);
+      } else {
+        frame.texts[0].appliedFont = String(cmd.fontFamily);
+      }
+    } catch (eFont) {
+      /* optional */
+    }
+  }
+
+  mcpPatchUpdated(frame, doc);
+  return {
+    op: "createTextFrame",
+    created: mcpSerializeItem(frame, doc),
   };
 }
 
@@ -1504,6 +1792,8 @@ function runCommand(cmd) {
       return opScanDocument(cmd);
     case "getSelection":
       return opGetSelection(cmd);
+    case "checkpoint":
+      return opCheckpoint(cmd);
     case "moveItem":
       return opMoveItem(cmd);
     case "resizeItem":
@@ -1512,6 +1802,8 @@ function runCommand(cmd) {
       return opDeleteItem(cmd);
     case "duplicateItem":
       return opDuplicateItem(cmd);
+    case "createTextFrame":
+      return opCreateTextFrame(cmd);
     case "setText":
       return opSetText(cmd);
     case "replaceText":
@@ -1559,16 +1851,63 @@ function mcpNeedsPoints(commands) {
   for (i = 0; i < commands.length; i++) {
     if (!commands[i] || !commands[i].op) continue;
     var op = String(commands[i].op);
-    if (op === "ping" || op === "noop") continue;
+    if (op === "ping" || op === "noop" || op === "checkpoint") continue;
     return true;
   }
   return false;
 }
 
+/** Ops that write to the document — mirrored in src/commands/mutations.ts. */
+var MCP_MUTATING_OPS = {
+  moveItem: 1,
+  resizeItem: 1,
+  deleteItem: 1,
+  duplicateItem: 1,
+  createTextFrame: 1,
+  setText: 1,
+  replaceText: 1,
+  setFont: 1,
+  setFill: 1,
+  alignItems: 1,
+  distributeItems: 1,
+  centerItems: 1,
+  stackItems: 1,
+  applyMargins: 1,
+  applyStyle: 1,
+  createStyle: 1,
+  updateStyle: 1,
+  relinkAsset: 1,
+  replaceAsset: 1,
+  embedAsset: 1,
+};
+
+function mcpHasMutation(commands) {
+  var i;
+  for (i = 0; i < commands.length; i++) {
+    if (!commands[i] || !commands[i].op) continue;
+    if (MCP_MUTATING_OPS[String(commands[i].op)] === 1) return true;
+  }
+  return false;
+}
+
+function mcpAsciiOnly(value) {
+  return String(value).replace(/[^\x20-\x7E]/g, "?");
+}
+
+/* Where a throw inside the transaction happened; read by the outer catch,
+   because app.doScript rethrows without saying which command died. */
+var gFailedIndex = -1;
+var gFailedOp = null;
+
 function mcpMain() {
   var requestPath = arguments[0];
   var responsePath = arguments[1];
   var result;
+  var transacted = false;
+  var txName = "MCP batch";
+
+  gFailedIndex = -1;
+  gFailedOp = null;
 
   try {
     if (!requestPath || !responsePath) {
@@ -1578,7 +1917,17 @@ function mcpMain() {
     var payload = mcpParseJson(mcpReadFile(requestPath));
     var commands = payload.commands || [];
     var results = [];
+    var done = [];
     var c;
+
+    for (c = 0; c < commands.length; c++) {
+      results.push(null);
+      done.push(false);
+    }
+
+    if (payload.transactionName) {
+      txName = mcpAsciiOnly(payload.transactionName).substring(0, 100);
+    }
 
     gModelPatch = { updated: [], removed: [], styles: null, links: null };
 
@@ -1586,36 +1935,75 @@ function mcpMain() {
     app.scriptPreferences.userInteractionLevel =
       UserInteractionLevels.NEVER_INTERACT;
 
-    var prevH = null;
-    var prevV = null;
-    var switchedUnits = false;
-    if (app.documents.length > 0 && mcpNeedsPoints(commands)) {
-      try {
-        prevH = app.activeDocument.viewPreferences.horizontalMeasurementUnits;
-        prevV = app.activeDocument.viewPreferences.verticalMeasurementUnits;
-        app.activeDocument.viewPreferences.horizontalMeasurementUnits =
-          MeasurementUnits.POINTS;
-        app.activeDocument.viewPreferences.verticalMeasurementUnits =
-          MeasurementUnits.POINTS;
-        switchedUnits = true;
-      } catch (eU) {
-        switchedUnits = false;
-      }
-    }
-
     try {
+      // Phase 1 — checkpoints, before the unit switch (so the copy keeps the
+      // user's measurement units) and before the transaction (so a rollback
+      // cannot take the safety copy with it).
       for (c = 0; c < commands.length; c++) {
-        results.push(runCommand(commands[c]));
-      }
-    } finally {
-      if (switchedUnits) {
-        try {
-          app.activeDocument.viewPreferences.horizontalMeasurementUnits = prevH;
-          app.activeDocument.viewPreferences.verticalMeasurementUnits = prevV;
-        } catch (eR) {
-          /* ignore */
+        if (commands[c] && String(commands[c].op) === "checkpoint") {
+          results[c] = runCommand(commands[c]);
+          done[c] = true;
         }
       }
+
+      var prevH = null;
+      var prevV = null;
+      var switchedUnits = false;
+      if (app.documents.length > 0 && mcpNeedsPoints(commands)) {
+        try {
+          prevH = app.activeDocument.viewPreferences.horizontalMeasurementUnits;
+          prevV = app.activeDocument.viewPreferences.verticalMeasurementUnits;
+          app.activeDocument.viewPreferences.horizontalMeasurementUnits =
+            MeasurementUnits.POINTS;
+          app.activeDocument.viewPreferences.verticalMeasurementUnits =
+            MeasurementUnits.POINTS;
+          switchedUnits = true;
+        } catch (eU) {
+          switchedUnits = false;
+        }
+      }
+
+      // Phase 2 — everything else, as one undo step. A throw in here reverts
+      // the whole request instead of leaving the page half-rebuilt.
+      var runRest = function () {
+        var k;
+        for (k = 0; k < commands.length; k++) {
+          if (done[k]) continue;
+          gFailedIndex = k;
+          gFailedOp =
+            commands[k] && commands[k].op ? String(commands[k].op) : "unknown";
+          results[k] = runCommand(commands[k]);
+          done[k] = true;
+        }
+        gFailedIndex = -1;
+        gFailedOp = null;
+        return results.length;
+      };
+
+      try {
+        if (app.documents.length > 0 && mcpHasMutation(commands)) {
+          transacted = true;
+          app.doScript(
+            runRest,
+            ScriptLanguage.JAVASCRIPT,
+            undefined,
+            UndoModes.ENTIRE_SCRIPT,
+            txName,
+          );
+        } else {
+          runRest();
+        }
+      } finally {
+        if (switchedUnits) {
+          try {
+            app.activeDocument.viewPreferences.horizontalMeasurementUnits = prevH;
+            app.activeDocument.viewPreferences.verticalMeasurementUnits = prevV;
+          } catch (eR) {
+            /* ignore */
+          }
+        }
+      }
+    } finally {
       app.scriptPreferences.userInteractionLevel = prevInteraction;
     }
 
@@ -1639,6 +2027,9 @@ function mcpMain() {
       requestId: payload.requestId || null,
       results: results,
       modelPatch: patch,
+      transaction: transacted
+        ? { name: txName, undoMode: "ENTIRE_SCRIPT" }
+        : null,
     };
   } catch (err) {
     var message = err && err.message ? String(err.message) : String(err);
@@ -1648,9 +2039,13 @@ function mcpMain() {
       error: {
         message: message,
         name: err && err.name ? String(err.name) : "Error",
+        failedIndex: gFailedIndex,
+        failedOp: gFailedOp,
+        rolledBack: transacted && gFailedIndex >= 0,
       },
       results: [],
       modelPatch: null,
+      transaction: null,
     };
   }
 

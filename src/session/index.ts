@@ -1,6 +1,12 @@
 export * from "./document-model.js";
 export { SessionStore, sessionStore } from "./session-store.js";
 export {
+  CheckpointStore,
+  checkpointStore,
+  type CheckpointLookup,
+  type CheckpointRecord,
+} from "./checkpoints.js";
+export {
   SnapshotStore,
   snapshotStore,
   type Snapshot,

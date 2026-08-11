@@ -83,10 +83,12 @@ A classificação é **heurística** (posição, tamanho, estilo de parágrafo, 
 - Trocar o texto inteiro de uma caixa  
 - Localizar e substituir trechos  
 - Mudar fonte, estilo da fonte, tamanho (em pontos)  
+- **Criar um novo parágrafo / text frame** (não precisa duplicar outro)  
 - Trabalhar na **seleção** ou no que ele identificou como título/corpo  
 
 Exemplos:
 
+- “Adiciona um parágrafo de corpo abaixo do título com lorem ipsum.”  
 - “Troca o título da página 1 para: Relatório Anual 2026.”  
 - “No corpo, troca ‘cliente’ por ‘parceiro’.”  
 - “Deixa o subtítulo em 18 pt.”
@@ -150,6 +152,26 @@ O assistente pode guardar um “antes” e um “depois” e **resumir as mudan�
 Peça: *“Resume o que mudou no documento desde o início desta edição.”*
 
 Isso ajuda a revisar antes de salvar / enviar para produção.
+
+### 9. Voltar atrás (o que te protege)
+
+Duas redes existem, e uma delas **não** é o que parece:
+
+- **“Resumo das mudanças” (snapshot) não é backup.** Ele só descreve posição,
+  estilo e um pedaço do texto. Não dá para restaurar a partir dele.
+- **Checkpoint é o backup de verdade:** uma cópia do `.indd` em
+  `_checkpoints/`, na mesma pasta do documento. O assistente tira uma sozinho
+  antes de qualquer alteração e **se recusa a mexer** se não conseguir gravar a
+  cópia. Ficam as 12 mais recentes; para voltar, é só abrir a cópia.
+- **Um Cmd+Z desfaz o pedido inteiro.** Se você pediu cinco mudanças de uma vez,
+  elas entram como um único passo no histórico — e se algo falhar no meio, nada
+  é aplicado, em vez de deixar a página pela metade.
+
+Peça: *“Faz um checkpoint antes, com a tag reescrita-p8.”*
+
+Isso existe porque uma sequência de correções pequenas, cada uma adivinhando
+qual quadro era o alvo, já destruiu uma página inteira. Peça **uma** mudança
+grande em vez de dez pequenas.
 
 ---
 

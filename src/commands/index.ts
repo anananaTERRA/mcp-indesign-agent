@@ -16,6 +16,21 @@ export {
   previewBatch,
   executeBatch,
   type PreviewBatchResult,
+  type ExecuteBatchOptions,
   type ExecuteBatchResult,
   type PreviewChange,
 } from "./batch.js";
+export {
+  CheckpointRequiredError,
+  createCheckpoint,
+  ensureCheckpoint,
+  getCheckpointKeep,
+  getCheckpointMode,
+  type CheckpointGateResult,
+  type CheckpointMode,
+} from "./checkpoint.js";
+export {
+  MUTATING_DISPATCHER_OPS,
+  isMutatingOp,
+  mutatingOpsIn,
+} from "./mutations.js";

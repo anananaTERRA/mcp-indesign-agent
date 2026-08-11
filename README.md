@@ -74,11 +74,37 @@ ping_indesign
   → scan_document                 # cache + snapshot before
   → analyze_page                  # roles (Header, Body…)
   → preview_batch | layout_assistant (opcional)
+  → checkpoint                    # cópia .indd em disco (automática, ver abaixo)
   → execute_batch | layout_assistant fix
   → summarize_changes
 ```
 
 Meta: pedido editorial típico em **≤ 3 round-trips** MCP (scan → batch → summarize).
+
+### Checkpoint: a rede que o `snapshot` não é
+
+Em 11/08/2026, 18 scripts de patch ad-hoc em ~20 minutos destruíram a p.8 de um
+livro em produção. Não havia como voltar: `snapshot` guarda só `bounds`,
+`paragraphStyle` e um `textPreview` truncado, e **não tem restore**; nenhum
+script usava transação, então cada um virava várias entradas de undo.
+
+O servidor agora recusa mutação sem rede:
+
+- **`op: "checkpoint"`** — `doc.saveACopy()` para `<pasta do .indd>/_checkpoints/`
+  com nome `<base>-<tag>-<YYYYMMDD-HHMMSS>.indd`, mantendo os `keep` mais
+  recentes (default 12). Disponível em `execute_operation` e como comando de
+  `execute_batch`. Roda **antes e fora** da transação — a cópia precisa
+  sobreviver ao rollback que ela existe para permitir.
+- **Gate no `execute_batch`** — todo batch mutante exige um checkpoint da
+  *geração* atual do documento (`meta.generation`). Por default o servidor tira
+  a cópia sozinho (`INDESIGN_CHECKPOINT_MODE=auto`) e **recusa o batch** se o
+  `saveACopy` falhar. `skipCheckpoint: true` é a saída deliberada.
+- **Uma transação por pedido** — todo batch mutante roda dentro de
+  `app.doScript(…, UndoModes.ENTIRE_SCRIPT, "<nome>")`. Um Cmd+Z desfaz o pedido
+  inteiro e uma exceção no meio reverte tudo. O nome do undo é forçado a ASCII.
+
+Criar/apagar frames muda a geração e invalida o checkpoint anterior; editar
+texto não muda, então uma cópia cobre uma sequência de edições de texto.
 
 Exemplos:
 
@@ -110,7 +136,9 @@ Novas capacidades entram como **`op` no dispatcher + comando de batch**, não co
 
 ### Ops de `execute_batch`
 
-`move`, `resize`, `delete`, `duplicate`, `setText`, `replaceText`, `setFont`, `setFill`, `align`, `distribute`, `center`, `stack`, `applyMargins`, `applyStyle`, `createStyle`, `updateStyle`, `relinkAsset`, `replaceAsset`, `embedAsset`.
+`checkpoint`, `move`, `resize`, `delete`, `duplicate`, `createTextFrame`, `setText`, `replaceText`, `setFont`, `setFill`, `align`, `distribute`, `center`, `stack`, `applyMargins`, `applyStyle`, `createStyle`, `updateStyle`, `relinkAsset`, `replaceAsset`, `embedAsset`.
+
+`checkpoint` é a única que não muta o documento.
 
 ## Env
 
@@ -120,6 +148,9 @@ Novas capacidades entram como **`op` no dispatcher + comando de batch**, não co
 | `INDESIGN_SCRIPT_TIMEOUT_SEC` | `300` |
 | `INDESIGN_TEMP_DIR` | `tmpdir/mcp-indesign-agent` |
 | `INDESIGN_BRIDGE` | `applescript` |
+| `INDESIGN_CHECKPOINT_MODE` | `auto` (`require` = só recusa, nunca salva sozinho; `off` = sem gate) |
+| `INDESIGN_CHECKPOINT_KEEP` | `12` |
+| `INDESIGN_CHECKPOINT_MAX_AGE_MIN` | `120` (`0` desliga a expiração) |
 
 ## Scripts
 
@@ -130,6 +161,7 @@ Novas capacidades entram como **`op` no dispatcher + comando de batch**, não co
 | `npm run dev` | MCP via `tsx` (dev) |
 | `npm run doctor` | Probe bridge + smoke |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | Gate de checkpoint + transação (`node --test`, sem InDesign) |
 
 ## Layout do repo
 
@@ -139,10 +171,11 @@ src/
   index.ts                    # Entry MCP + agent instructions
   agent-instructions.ts       # Orientação scan→batch para o client
   bridge/                     # BridgeAdapter (AppleScript v1)
-  session/                    # Document Model, cache, snapshots, semantic
-  commands/                   # Zod schema, planner, batch
+  session/                    # Document Model, cache, snapshots, checkpoints, semantic
+  commands/                   # Zod schema, planner, batch, checkpoint gate, mutations
   tools/                      # Tools MCP registradas
-  lib/                        # geometry + text-layout (pts) + layout-assistant
+  lib/                        # geometry + text-layout (pts) + layout-assistant + ascii
+tests/                        # Gate + transação (fake bridge, não abre o InDesign)
 ```
 
 ## License

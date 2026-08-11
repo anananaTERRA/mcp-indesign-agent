@@ -1,4 +1,18 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CheckpointRequiredError } from "../commands/checkpoint.js";
+import { checkpointStore } from "../session/checkpoints.js";
+
+/** Refusal body for a mutation with no way back — see commands/checkpoint.ts. */
+export function checkpointRefusalPayload(err: CheckpointRequiredError) {
+  return {
+    ok: false,
+    code: err.code,
+    message: err.message,
+    generation: err.generation,
+    remedy: err.remedy,
+    recentCheckpoints: checkpointStore.list(5),
+  };
+}
 
 export function textResult(data: unknown): CallToolResult {
   return {

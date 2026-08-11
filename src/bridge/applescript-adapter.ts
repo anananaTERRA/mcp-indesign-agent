@@ -122,6 +122,29 @@ function mapOsascriptError(detail: string): BridgeError {
   return new BridgeError("BRIDGE", `AppleScript/osascript failed: ${detail}`, detail);
 }
 
+/**
+ * Keep the ExtendScript message intact and add what the undo wrapper knows:
+ * which command threw, and whether the whole request was reverted.
+ */
+function describeDispatcherError(parsed: DispatcherResult): string {
+  const err = parsed.error;
+  const base = err?.message ?? "Unknown ExtendScript error";
+  if (base.startsWith("NO_DOCUMENT:")) return base;
+
+  const parts: string[] = [];
+  if (err?.failedOp) {
+    const at =
+      err.failedIndex !== undefined && err.failedIndex >= 0
+        ? ` (command #${err.failedIndex})`
+        : "";
+    parts.push(`failed on op "${err.failedOp}"${at}`);
+  }
+  if (err?.rolledBack) {
+    parts.push("the whole batch was rolled back, the document is unchanged");
+  }
+  return parts.length ? `${base} — ${parts.join("; ")}` : base;
+}
+
 export interface AppleScriptAdapterOptions {
   appName?: string;
   timeoutSec?: number;
@@ -228,7 +251,7 @@ export class AppleScriptExtendScriptAdapter implements BridgeAdapter {
       }
 
       if (!parsed.ok) {
-        const message = parsed.error?.message ?? "Unknown ExtendScript error";
+        const message = describeDispatcherError(parsed);
         if (message.startsWith("NO_DOCUMENT:")) {
           throw new BridgeError("NO_DOCUMENT", message, parsed);
         }

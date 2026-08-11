@@ -7,12 +7,17 @@ import {
   type BridgeAdapter,
 } from "../bridge/index.js";
 import {
+  CheckpointRequiredError,
   executeBatch,
   PlannerError,
   previewBatch,
 } from "../commands/index.js";
 import { sessionStore, snapshotStore } from "../session/index.js";
-import { textResult, withToolError } from "./helpers.js";
+import {
+  checkpointRefusalPayload,
+  textResult,
+  withToolError,
+} from "./helpers.js";
 
 function bridgeFromTimeout(timeoutSec?: number): BridgeAdapter {
   if (timeoutSec !== undefined) {
@@ -36,7 +41,7 @@ const commandsField = z
   .min(1)
   .max(50)
   .describe(
-    "Batch commands (prefer ONE execute_batch over many tools). Ops: move, resize, delete, duplicate, setText, replaceText, setFont, setFill, align, distribute, center, stack, applyMargins, applyStyle, createStyle, updateStyle, relinkAsset, replaceAsset, embedAsset. target: uuid | {uuid} | {role, pageIndex?} | {selection:true}. Geometry in points. Requires prior scan_document (and analyze_page for role targets).",
+    "Batch commands (prefer ONE execute_batch over many tools). Ops: checkpoint, move, resize, delete, duplicate, createTextFrame, setText, replaceText, setFont, setFill, align, distribute, center, stack, applyMargins, applyStyle, createStyle, updateStyle, relinkAsset, replaceAsset, embedAsset. checkpoint: {op:'checkpoint', tag?, keep?} saves an .indd copy to _checkpoints/ and runs before the undo transaction. createTextFrame: {op, x,y,width,height,text?} or {op, below:{role|uuid|selection}, gapPt?, text?}. Geometry in points. Requires prior scan_document (and analyze_page for role targets).",
   );
 
 export function registerBatchTools(server: McpServer): void {
@@ -175,24 +180,53 @@ export function registerBatchTools(server: McpServer): void {
     "execute_batch",
     {
       description:
-        "Preferred mutation path: resolve targets → one dispatcher round-trip → modelPatch on cache. ALWAYS prefer this over execute_operation / layout_operation when combining ops. Typical flow: scan_document → (analyze_page) → execute_batch → summarize_changes.",
+        "Preferred mutation path: resolve targets → checkpoint gate → one dispatcher round-trip inside a single ENTIRE_SCRIPT undo transaction → modelPatch on cache. ALWAYS prefer this over execute_operation / layout_operation when combining ops. Mutating batches need an on-disk checkpoint for the current generation; the server takes one automatically and refuses the batch if saving it fails. Typical flow: scan_document → (analyze_page) → execute_batch → summarize_changes.",
       inputSchema: {
       commands: commandsField,
       captureAfterSnapshot: z
         .boolean()
         .optional()
         .describe("Capture snapshot after (default true)"),
+      skipCheckpoint: z
+        .boolean()
+        .optional()
+        .describe(
+          "Mutate with no way back. Only when you deliberately accept that a bad edit cannot be rolled back (default false).",
+        ),
+      checkpointTag: z
+        .string()
+        .max(60)
+        .optional()
+        .describe("Short reason for the automatic checkpoint filename"),
+      transactionName: z
+        .string()
+        .max(100)
+        .optional()
+        .describe("Label for the single undo step in InDesign (forced to ASCII)"),
       timeoutSec: z.number().int().min(1).max(300).optional(),
     
       },
     },
-    withToolError(async ({ commands, captureAfterSnapshot, timeoutSec }) => {
+    withToolError(async ({
+      commands,
+      captureAfterSnapshot,
+      skipCheckpoint,
+      checkpointTag,
+      transactionName,
+      timeoutSec,
+    }) => {
       try {
         const result = await executeBatch(bridgeFromTimeout(timeoutSec), commands, {
           captureAfterSnapshot: captureAfterSnapshot !== false,
+          skipCheckpoint,
+          checkpointTag,
+          transactionName,
         });
         return textResult(result);
       } catch (err) {
+        if (err instanceof CheckpointRequiredError) {
+          return textResult(checkpointRefusalPayload(err));
+        }
         if (err instanceof BridgeError) {
           return textResult(bridgeErrorPayload(err));
         }

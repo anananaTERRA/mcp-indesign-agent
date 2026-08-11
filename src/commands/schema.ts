@@ -44,6 +44,22 @@ const StyleSpecSchema = z.object({
 /** High-level ops accepted by preview/execute_batch (before target resolution). */
 export const BatchCommandSchema = z.discriminatedUnion("op", [
   z.object({
+    op: z.literal("checkpoint"),
+    tag: z
+      .string()
+      .min(1)
+      .max(60)
+      .optional()
+      .describe("Short reason, becomes part of the filename (ASCII slug)"),
+    keep: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe("Keep only the N newest checkpoints of this document (default 12)"),
+  }),
+  z.object({
     op: z.literal("move"),
     target: TargetSchema,
     dx: z.number().optional().describe("Delta X in points"),
@@ -66,6 +82,31 @@ export const BatchCommandSchema = z.discriminatedUnion("op", [
     target: TargetSchema,
     dx: z.number().optional(),
     dy: z.number().optional(),
+  }),
+  z.object({
+    op: z.literal("createTextFrame"),
+    pageIndex: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("0-based page (default 0; ignored if below resolves a page)"),
+    x: z.number().optional().describe("Left in points (required unless below)"),
+    y: z.number().optional().describe("Top in points (required unless below)"),
+    width: z.number().positive().optional(),
+    height: z.number().positive().optional(),
+    text: z.string().optional().describe("Initial contents"),
+    style: z.string().optional().describe("Paragraph style name"),
+    fontSizePt: z.number().positive().optional(),
+    fontFamily: z.string().optional(),
+    fontStyle: z.string().optional(),
+    below: TargetSchema.optional().describe(
+      "Place under this item; inherits x/width when omitted",
+    ),
+    gapPt: z
+      .number()
+      .optional()
+      .describe("Vertical gap below anchor when using below (default 12)"),
   }),
   z.object({
     op: z.literal("setText"),
@@ -165,6 +206,7 @@ export const BatchCommandsSchema = z.array(BatchCommandSchema).min(1).max(50);
 
 /** Dispatcher wire format after planner resolves targets to uuid(s). */
 export type ResolvedDispatcherCommand =
+  | { op: "checkpoint"; tag?: string; keep?: number }
   | {
       op: "moveItem";
       target: string;
@@ -185,6 +227,21 @@ export type ResolvedDispatcherCommand =
       target: string;
       dx?: number;
       dy?: number;
+    }
+  | {
+      op: "createTextFrame";
+      pageIndex?: number;
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      text?: string;
+      style?: string;
+      fontSizePt?: number;
+      fontFamily?: string;
+      fontStyle?: string;
+      belowTarget?: string;
+      gapPt?: number;
     }
   | { op: "setText"; target: string; text: string }
   | {

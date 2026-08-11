@@ -1,5 +1,6 @@
 import type { ModelPatch } from "../bridge/types.js";
 import {
+  buildGeneration,
   type DocumentItem,
   type DocumentModel,
   type DocumentModelSummary,
@@ -130,6 +131,14 @@ export class SessionStore {
       meta: {
         ...this.model.meta,
         pageCount: this.model.pages.length,
+        // Recompute so that adding or deleting frames invalidates the
+        // checkpoint taken before them. Pure text/style edits keep the same
+        // uuid set and therefore the same generation.
+        generation: buildGeneration(
+          this.model.meta.path,
+          this.model.pages.length,
+          items,
+        ),
       },
     };
   }

@@ -5,6 +5,7 @@ export type DispatcherOp =
   | "noop"
   | "scanDocument"
   | "getSelection"
+  | "checkpoint"
   | "moveItem"
   | "resizeItem"
   | "deleteItem"
@@ -37,6 +38,11 @@ export interface DispatcherCommand {
 export interface DispatcherPayload {
   requestId: string;
   commands: DispatcherCommand[];
+  /**
+   * Undo-menu label for the ENTIRE_SCRIPT transaction wrapping the mutating
+   * commands. Must be ASCII — see lib/ascii.ts.
+   */
+  transactionName?: string;
 }
 
 export interface ModelPatchItem {
@@ -82,6 +88,11 @@ export interface ModelPatch {
 export interface DispatcherErrorBody {
   message: string;
   name?: string;
+  /** Index in the commands array that threw, when the failure was inside an op. */
+  failedIndex?: number;
+  failedOp?: string;
+  /** True when the ENTIRE_SCRIPT transaction reverted the whole request. */
+  rolledBack?: boolean;
 }
 
 export interface DispatcherResult {
@@ -89,6 +100,7 @@ export interface DispatcherResult {
   requestId?: string | null;
   results: unknown[];
   modelPatch?: ModelPatch | null;
+  transaction?: { name: string; undoMode: string } | null;
   error?: DispatcherErrorBody;
 }
 

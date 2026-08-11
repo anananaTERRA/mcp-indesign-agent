@@ -1,3 +1,4 @@
+import { toAsciiTag } from "../lib/ascii.js";
 import type { DocumentItem, DocumentModel } from "../session/document-model.js";
 import type { BatchCommand, ResolvedDispatcherCommand, TargetInput } from "./schema.js";
 
@@ -109,6 +110,14 @@ export function planCommands(
 
   for (const cmd of commands) {
     switch (cmd.op) {
+      case "checkpoint": {
+        out.push({
+          op: "checkpoint",
+          tag: toAsciiTag(cmd.tag ?? "batch"),
+          keep: cmd.keep,
+        });
+        break;
+      }
       case "move": {
         const uuids = resolveTargetUuids(cmd.target, model);
         for (const target of uuids) {
@@ -152,6 +161,43 @@ export function planCommands(
             dy: cmd.dy,
           });
         }
+        break;
+      }
+      case "createTextFrame": {
+        let belowTarget: string | undefined;
+        if (cmd.below !== undefined) {
+          const uuids = resolveTargetUuids(cmd.below, model);
+          if (uuids.length !== 1) {
+            throw new PlannerError(
+              `createTextFrame.below must resolve to exactly one item (got ${uuids.length})`,
+            );
+          }
+          belowTarget = uuids[0];
+        } else if (
+          cmd.x === undefined ||
+          cmd.y === undefined ||
+          cmd.width === undefined ||
+          cmd.height === undefined
+        ) {
+          throw new PlannerError(
+            "createTextFrame requires x,y,width,height or below (anchor target)",
+          );
+        }
+        out.push({
+          op: "createTextFrame",
+          pageIndex: cmd.pageIndex,
+          x: cmd.x,
+          y: cmd.y,
+          width: cmd.width,
+          height: cmd.height,
+          text: cmd.text,
+          style: cmd.style,
+          fontSizePt: cmd.fontSizePt,
+          fontFamily: cmd.fontFamily,
+          fontStyle: cmd.fontStyle,
+          belowTarget,
+          gapPt: cmd.gapPt,
+        });
         break;
       }
       case "setText": {
