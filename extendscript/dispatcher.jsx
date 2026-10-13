@@ -69,7 +69,11 @@ function mcpStringifyFallback(value) {
         .replace(/"/g, '\\"')
         .replace(/\n/g, "\\n")
         .replace(/\r/g, "\\r")
-        .replace(/\t/g, "\\t") +
+        .replace(/\t/g, "\\t")
+        // InDesign special characters (page number, section marker, indent-to-here...) are < 0x20
+        .replace(/[\x00-\x1f\u2028\u2029]/g, function (c) {
+          return "\\u" + ("0000" + c.charCodeAt(0).toString(16)).slice(-4);
+        }) +
       '"'
     );
   }
