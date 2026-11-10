@@ -1839,6 +1839,16 @@ function opCreateDocument(cmd) {
   var filePath = cmd.filePath ? String(cmd.filePath) : null;
 
   var doc = app.documents.add();
+  // Set POINTS *before* pageWidth/pageHeight. Otherwise the app default
+  // (often picas) makes 595.276 become 595.276p = 7143pt (12x A4).
+  try {
+    app.scriptPreferences.measurementUnit = MeasurementUnits.POINTS;
+    doc.viewPreferences.horizontalMeasurementUnits = MeasurementUnits.POINTS;
+    doc.viewPreferences.verticalMeasurementUnits = MeasurementUnits.POINTS;
+  } catch (eU) {
+    /* optional */
+  }
+
   try {
     doc.documentPreferences.pageWidth = width;
     doc.documentPreferences.pageHeight = height;
@@ -1864,13 +1874,6 @@ function opCreateDocument(cmd) {
     }
   } catch (ePages) {
     throw new Error("createDocument pages failed: " + (ePages.message || ePages));
-  }
-
-  try {
-    doc.viewPreferences.horizontalMeasurementUnits = MeasurementUnits.POINTS;
-    doc.viewPreferences.verticalMeasurementUnits = MeasurementUnits.POINTS;
-  } catch (eU) {
-    /* optional */
   }
 
   app.activeDocument = doc;
