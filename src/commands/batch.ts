@@ -206,6 +206,7 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
       case "replaceText":
       case "setFont":
       case "setFill":
+      case "setTextColor":
       case "applyStyle": {
         const box = boundsMap.get(cmd.target);
         changes.push({
@@ -249,6 +250,56 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
           fromBounds: null,
           toBounds: null,
           note: `embed ${cmd.linkId ?? cmd.name}`,
+        });
+        break;
+      }
+      case "createDocument": {
+        changes.push({
+          uuid: "",
+          op: cmd.op,
+          fromBounds: null,
+          toBounds: null,
+          note: `create document ${cmd.filePath}`,
+        });
+        break;
+      }
+      case "addPages": {
+        changes.push({
+          uuid: "",
+          op: cmd.op,
+          fromBounds: null,
+          toBounds: null,
+          note: `add ${cmd.count ?? 1} page(s)`,
+        });
+        break;
+      }
+      case "ensureSwatch":
+      case "ensureMaster":
+      case "assignMaster":
+      case "exportPdf":
+      case "packageDocument": {
+        changes.push({
+          uuid: "",
+          op: cmd.op,
+          fromBounds: null,
+          toBounds: null,
+          note: cmd.op,
+        });
+        break;
+      }
+      case "createRectangle":
+      case "placeAsset": {
+        changes.push({
+          uuid: "",
+          op: cmd.op,
+          fromBounds: null,
+          toBounds: {
+            y1: cmd.y,
+            x1: cmd.x,
+            y2: cmd.y + cmd.height,
+            x2: cmd.x + cmd.width,
+          },
+          note: cmd.op,
         });
         break;
       }
@@ -430,13 +481,20 @@ export async function executeBatch(
     checkpoint.capturedAt = inBatch.capturedAt;
   }
 
-  const patch = result.modelPatch ?? null;
-  if (patch) {
-    sessionStore.applyPatch(normalizePatch(patch));
-  } else if (resolved.some((c) => isMutatingOp(c.op))) {
-    // Mutation without an aggregated patch — merge what the per-op results carry
-    // rather than dropping the cache on the floor.
-    applyResultsFallback(resolved, result.results);
+  const needsRescan = resolved.some(
+    (c) => c.op === "createDocument" || c.op === "addPages",
+  );
+  if (needsRescan) {
+    sessionStore.invalidate();
+  } else {
+    const patch = result.modelPatch ?? null;
+    if (patch) {
+      sessionStore.applyPatch(normalizePatch(patch));
+    } else if (resolved.some((c) => isMutatingOp(c.op))) {
+      // Mutation without an aggregated patch — merge what the per-op results carry
+      // rather than dropping the cache on the floor.
+      applyResultsFallback(resolved, result.results);
+    }
   }
 
   let snapshotAfter: { id: string; label: string } | null = null;
@@ -452,7 +510,7 @@ export async function executeBatch(
     ok: true,
     resolved,
     results: result.results,
-    modelPatch: patch,
+    modelPatch: needsRescan ? null : (result.modelPatch ?? null),
     summary: sessionStore.summary(true),
     snapshotAfter,
     checkpoint,

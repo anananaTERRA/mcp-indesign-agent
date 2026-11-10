@@ -240,6 +240,13 @@ export function planCommands(
         }
         break;
       }
+      case "setTextColor": {
+        const uuids = resolveTargetUuids(cmd.target, model);
+        for (const target of uuids) {
+          out.push({ op: "setTextColor", target, fill: cmd.fill });
+        }
+        break;
+      }
       case "align": {
         const uuids = resolveTargetUuids(cmd.target, model);
         out.push({ op: "alignItems", targets: uuids, align: cmd.align });
@@ -331,6 +338,99 @@ export function planCommands(
           op: "embedAsset",
           linkId: cmd.linkId,
           name: cmd.name,
+        });
+        break;
+      }
+      case "createDocument": {
+        out.push({
+          op: "createDocument",
+          filePath: cmd.filePath,
+          widthPt: cmd.widthPt,
+          heightPt: cmd.heightPt,
+          pageCount: cmd.pageCount,
+          facingPages: cmd.facingPages,
+          bleedPt: cmd.bleedPt,
+        });
+        break;
+      }
+      case "addPages": {
+        out.push({
+          op: "addPages",
+          count: cmd.count,
+          afterPageIndex: cmd.afterPageIndex,
+        });
+        break;
+      }
+      case "ensureSwatch": {
+        if (!cmd.rgb && !cmd.cmyk) {
+          throw new PlannerError("ensureSwatch requires rgb or cmyk");
+        }
+        out.push({
+          op: "ensureSwatch",
+          name: cmd.name,
+          rgb: cmd.rgb,
+          cmyk: cmd.cmyk,
+        });
+        break;
+      }
+      case "createRectangle": {
+        out.push({
+          op: "createRectangle",
+          pageIndex: cmd.pageIndex,
+          x: cmd.x,
+          y: cmd.y,
+          width: cmd.width,
+          height: cmd.height,
+          fill: cmd.fill,
+        });
+        break;
+      }
+      case "placeAsset": {
+        out.push({
+          op: "placeAsset",
+          filePath: cmd.filePath,
+          pageIndex: cmd.pageIndex,
+          x: cmd.x,
+          y: cmd.y,
+          width: cmd.width,
+          height: cmd.height,
+        });
+        break;
+      }
+      case "ensureMaster": {
+        out.push({
+          op: "ensureMaster",
+          name: cmd.name,
+          basedOn: cmd.basedOn,
+        });
+        break;
+      }
+      case "assignMaster": {
+        if (cmd.pageIndex === undefined && !cmd.pageIndexes?.length) {
+          throw new PlannerError("assignMaster requires pageIndex or pageIndexes");
+        }
+        out.push({
+          op: "assignMaster",
+          masterName: cmd.masterName,
+          pageIndex: cmd.pageIndex,
+          pageIndexes: cmd.pageIndexes,
+        });
+        break;
+      }
+      case "exportPdf": {
+        out.push({
+          op: "exportPdf",
+          filePath: cmd.filePath,
+          preset: cmd.preset,
+        });
+        break;
+      }
+      case "packageDocument": {
+        out.push({
+          op: "packageDocument",
+          folderPath: cmd.folderPath,
+          copyFonts: cmd.copyFonts,
+          copyLinkedGraphics: cmd.copyLinkedGraphics,
         });
         break;
       }

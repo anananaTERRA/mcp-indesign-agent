@@ -8,6 +8,8 @@
  *      alignItems | distributeItems | centerItems | stackItems | applyMargins
  *      listStyles | applyStyle | createStyle | updateStyle
  *      listAssets | checkMissingLinks | relinkAsset | embedAsset
+ *      createDocument | addPages | ensureSwatch | createRectangle | placeAsset
+ *      ensureMaster | assignMaster | exportPdf | packageDocument
  *
  * Every request that contains a mutating op runs inside a single
  * UndoModes.ENTIRE_SCRIPT transaction, so one Cmd+Z undoes the whole request
@@ -1266,6 +1268,31 @@ function opSetFill(cmd) {
   return { op: "setFill", target: cmd.target, item: mcpSerializeItem(item, doc) };
 }
 
+function opSetTextColor(cmd) {
+  var doc = mcpRequireDoc();
+  var item = mcpFindByUuid(doc, cmd.target);
+  var color = mcpResolveFill(doc, cmd.fill || cmd.color);
+  var text;
+  try {
+    if (item instanceof TextFrame && item.texts.length > 0) text = item.texts[0];
+    else if (item.texts && item.texts.length > 0) text = item.texts[0];
+    else throw new Error("Item has no text");
+  } catch (e) {
+    throw new Error("setTextColor: " + (e.message || e));
+  }
+  try {
+    text.fillColor = color;
+  } catch (e2) {
+    throw new Error("setTextColor failed: " + (e2.message || e2));
+  }
+  mcpPatchUpdated(item, doc);
+  return {
+    op: "setTextColor",
+    target: cmd.target,
+    item: mcpSerializeItem(item, doc),
+  };
+}
+
 function mcpCollectTargets(doc, targets) {
   var items = [];
   var i;
@@ -1783,6 +1810,544 @@ function opEmbedAsset(cmd) {
   };
 }
 
+function mcpEnsureFolder(folder) {
+  if (!folder) return;
+  if (folder.exists) return;
+  var parent = folder.parent;
+  if (parent && !parent.exists) mcpEnsureFolder(parent);
+  folder.create();
+}
+
+function opCreateDocument(cmd) {
+  var width =
+    cmd.widthPt !== undefined && cmd.widthPt !== null
+      ? Number(cmd.widthPt)
+      : 595.276;
+  var height =
+    cmd.heightPt !== undefined && cmd.heightPt !== null
+      ? Number(cmd.heightPt)
+      : 841.89;
+  var pageCount =
+    cmd.pageCount !== undefined && cmd.pageCount !== null
+      ? Math.max(1, Math.floor(Number(cmd.pageCount)))
+      : 1;
+  var facing = !!cmd.facingPages;
+  var bleed =
+    cmd.bleedPt !== undefined && cmd.bleedPt !== null
+      ? Number(cmd.bleedPt)
+      : 0;
+  var filePath = cmd.filePath ? String(cmd.filePath) : null;
+
+  var doc = app.documents.add();
+  try {
+    doc.documentPreferences.pageWidth = width;
+    doc.documentPreferences.pageHeight = height;
+    doc.documentPreferences.facingPages = facing;
+    doc.documentPreferences.pageOrientation =
+      width >= height
+        ? PageOrientation.LANDSCAPE
+        : PageOrientation.PORTRAIT;
+    if (bleed > 0) {
+      doc.documentPreferences.documentBleedUniformSize = true;
+      doc.documentPreferences.documentBleedTopOffset = bleed;
+    }
+  } catch (ePref) {
+    throw new Error("createDocument prefs failed: " + (ePref.message || ePref));
+  }
+
+  try {
+    while (doc.pages.length < pageCount) {
+      doc.pages.add(LocationOptions.AT_END);
+    }
+    while (doc.pages.length > pageCount) {
+      doc.pages[doc.pages.length - 1].remove();
+    }
+  } catch (ePages) {
+    throw new Error("createDocument pages failed: " + (ePages.message || ePages));
+  }
+
+  try {
+    doc.viewPreferences.horizontalMeasurementUnits = MeasurementUnits.POINTS;
+    doc.viewPreferences.verticalMeasurementUnits = MeasurementUnits.POINTS;
+  } catch (eU) {
+    /* optional */
+  }
+
+  app.activeDocument = doc;
+
+  if (filePath) {
+    try {
+      var f = new File(filePath);
+      mcpEnsureFolder(f.parent);
+      doc.save(f);
+    } catch (eSave) {
+      throw new Error(
+        "createDocument save failed: " + (eSave.message || eSave),
+      );
+    }
+  }
+
+  return {
+    op: "createDocument",
+    name: String(doc.name),
+    path: mcpDocPath(doc),
+    pageCount: doc.pages.length,
+    pageSize: { width: width, height: height },
+    requiresRescan: true,
+  };
+}
+
+function opAddPages(cmd) {
+  var doc = mcpRequireDoc();
+  var count =
+    cmd.count !== undefined && cmd.count !== null
+      ? Math.max(1, Math.floor(Number(cmd.count)))
+      : 1;
+  var after =
+    cmd.afterPageIndex !== undefined && cmd.afterPageIndex !== null
+      ? Number(cmd.afterPageIndex)
+      : doc.pages.length - 1;
+  if (after < -1 || after >= doc.pages.length) {
+    throw new Error(
+      "addPages afterPageIndex out of range (-1.." +
+        (doc.pages.length - 1) +
+        ")",
+    );
+  }
+  var i;
+  var created = [];
+  for (i = 0; i < count; i++) {
+    var page;
+    if (after < 0 && doc.pages.length === 0) {
+      page = doc.pages.add();
+    } else if (after < 0) {
+      page = doc.pages.add(LocationOptions.AT_BEGINNING);
+    } else {
+      page = doc.pages.add(LocationOptions.AFTER, doc.pages[after]);
+    }
+    after = page.documentOffset;
+    created.push(after);
+  }
+  return {
+    op: "addPages",
+    pageCount: doc.pages.length,
+    createdPageIndexes: created,
+    requiresRescan: true,
+  };
+}
+
+function opEnsureSwatch(cmd) {
+  var doc = mcpRequireDoc();
+  var name = String(cmd.name || "");
+  if (!name) throw new Error("ensureSwatch requires name");
+  var existing;
+  try {
+    existing = doc.colors.itemByName(name);
+    if (existing && existing.isValid) {
+      return { op: "ensureSwatch", name: name, created: false };
+    }
+  } catch (eEx) {
+    /* create below */
+  }
+  var color;
+  try {
+    if (cmd.rgb) {
+      color = doc.colors.add({
+        name: name,
+        model: ColorModel.PROCESS,
+        space: ColorSpace.RGB,
+        colorValue: [
+          Number(cmd.rgb[0]),
+          Number(cmd.rgb[1]),
+          Number(cmd.rgb[2]),
+        ],
+      });
+    } else if (cmd.cmyk) {
+      color = doc.colors.add({
+        name: name,
+        model: ColorModel.PROCESS,
+        space: ColorSpace.CMYK,
+        colorValue: [
+          Number(cmd.cmyk[0]),
+          Number(cmd.cmyk[1]),
+          Number(cmd.cmyk[2]),
+          Number(cmd.cmyk[3]),
+        ],
+      });
+    } else {
+      throw new Error("ensureSwatch requires rgb or cmyk");
+    }
+  } catch (eAdd) {
+    throw new Error("ensureSwatch failed: " + (eAdd.message || eAdd));
+  }
+  return {
+    op: "ensureSwatch",
+    name: String(color.name),
+    created: true,
+  };
+}
+
+function opCreateRectangle(cmd) {
+  var doc = mcpRequireDoc();
+  var pageIndex =
+    cmd.pageIndex !== undefined && cmd.pageIndex !== null
+      ? Number(cmd.pageIndex)
+      : 0;
+  if (pageIndex < 0 || pageIndex >= doc.pages.length) {
+    throw new Error(
+      "createRectangle pageIndex out of range (0.." +
+        (doc.pages.length - 1) +
+        ")",
+    );
+  }
+  if (
+    cmd.x === undefined ||
+    cmd.y === undefined ||
+    cmd.width === undefined ||
+    cmd.height === undefined
+  ) {
+    throw new Error("createRectangle requires x,y,width,height");
+  }
+  var x = Number(cmd.x);
+  var y = Number(cmd.y);
+  var width = Number(cmd.width);
+  var height = Number(cmd.height);
+  if (!(width > 0) || !(height > 0)) {
+    throw new Error("createRectangle width/height must be positive");
+  }
+  var page = doc.pages[pageIndex];
+  var rect;
+  try {
+    rect = page.rectangles.add({
+      geometricBounds: [y, x, y + height, x + width],
+    });
+  } catch (eAdd) {
+    throw new Error("createRectangle failed: " + (eAdd.message || eAdd));
+  }
+  var uuid = mcpUuid();
+  try {
+    rect.label = MCP_LABEL_PREFIX + uuid;
+  } catch (eL) {
+    /* ignore */
+  }
+  if (cmd.fill) {
+    try {
+      rect.fillColor = mcpResolveFill(doc, cmd.fill);
+    } catch (eF) {
+      throw new Error("createRectangle fill failed: " + (eF.message || eF));
+    }
+  }
+  try {
+    rect.strokeWeight = 0;
+  } catch (eS) {
+    /* optional */
+  }
+  mcpPatchUpdated(rect, doc);
+  return {
+    op: "createRectangle",
+    created: mcpSerializeItem(rect, doc),
+  };
+}
+
+function opPlaceAsset(cmd) {
+  var doc = mcpRequireDoc();
+  var filePath = String(cmd.filePath || "");
+  if (!filePath) throw new Error("placeAsset requires filePath");
+  var f = new File(filePath);
+  if (!f.exists) throw new Error("placeAsset file not found: " + filePath);
+
+  var pageIndex =
+    cmd.pageIndex !== undefined && cmd.pageIndex !== null
+      ? Number(cmd.pageIndex)
+      : 0;
+  if (pageIndex < 0 || pageIndex >= doc.pages.length) {
+    throw new Error(
+      "placeAsset pageIndex out of range (0.." +
+        (doc.pages.length - 1) +
+        ")",
+    );
+  }
+  if (
+    cmd.x === undefined ||
+    cmd.y === undefined ||
+    cmd.width === undefined ||
+    cmd.height === undefined
+  ) {
+    throw new Error("placeAsset requires x,y,width,height");
+  }
+  var x = Number(cmd.x);
+  var y = Number(cmd.y);
+  var width = Number(cmd.width);
+  var height = Number(cmd.height);
+  if (!(width > 0) || !(height > 0)) {
+    throw new Error("placeAsset width/height must be positive");
+  }
+
+  var page = doc.pages[pageIndex];
+  var frame;
+  try {
+    frame = page.rectangles.add({
+      geometricBounds: [y, x, y + height, x + width],
+    });
+  } catch (eAdd) {
+    throw new Error("placeAsset frame failed: " + (eAdd.message || eAdd));
+  }
+
+  try {
+    frame.place(f, false);
+    frame.fit(FitOptions.PROPORTIONALLY);
+    frame.fit(FitOptions.CENTER_CONTENT);
+  } catch (ePlace) {
+    try {
+      frame.remove();
+    } catch (eRm) {
+      /* ignore */
+    }
+    throw new Error("placeAsset place failed: " + (ePlace.message || ePlace));
+  }
+
+  var uuid = mcpUuid();
+  try {
+    frame.label = MCP_LABEL_PREFIX + uuid;
+  } catch (eL) {
+    /* ignore */
+  }
+  try {
+    frame.strokeWeight = 0;
+  } catch (eS) {
+    /* optional */
+  }
+
+  mcpPatchUpdated(frame, doc);
+  return {
+    op: "placeAsset",
+    created: mcpSerializeItem(frame, doc),
+    filePath: filePath,
+  };
+}
+
+function mcpFindMasterByName(doc, name) {
+  var want = String(name);
+  var i;
+  for (i = 0; i < doc.masterSpreads.length; i++) {
+    var m = doc.masterSpreads[i];
+    try {
+      if (String(m.name) === want) return m;
+    } catch (eN) {
+      /* skip */
+    }
+  }
+  return null;
+}
+
+function mcpParseMasterName(name) {
+  var s = String(name);
+  var m = s.match(/^([A-Z])-(.+)$/);
+  if (m) {
+    return { prefix: m[1], baseName: m[2] };
+  }
+  return { prefix: null, baseName: s };
+}
+
+function mcpNextMasterPrefix(doc) {
+  var used = {};
+  var i;
+  for (i = 0; i < doc.masterSpreads.length; i++) {
+    try {
+      used[String(doc.masterSpreads[i].namePrefix)] = 1;
+    } catch (eP) {
+      /* skip */
+    }
+  }
+  var code;
+  for (code = 65; code <= 90; code++) {
+    var letter = String.fromCharCode(code);
+    if (!used[letter]) return letter;
+  }
+  return "Z";
+}
+
+function opEnsureMaster(cmd) {
+  var doc = mcpRequireDoc();
+  var name = String(cmd.name || "");
+  if (!name) throw new Error("ensureMaster requires name");
+  var existing = mcpFindMasterByName(doc, name);
+  if (existing) {
+    return { op: "ensureMaster", name: String(existing.name), created: false };
+  }
+
+  var parsed = mcpParseMasterName(name);
+  var master = null;
+  var created = true;
+
+  // Prefer renaming the default parent master when asking for A-<Something>
+  // InDesign 2026 names it A-Parent; older builds used A-Master.
+  if (parsed.prefix === "A") {
+    var defaultNames = ["A-Parent", "A-Master"];
+    var di;
+    for (di = 0; di < defaultNames.length; di++) {
+      var aMaster = mcpFindMasterByName(doc, defaultNames[di]);
+      if (!aMaster) continue;
+      try {
+        aMaster.baseName = parsed.baseName;
+        return {
+          op: "ensureMaster",
+          name: String(aMaster.name),
+          created: false,
+          renamedFrom: defaultNames[di],
+        };
+      } catch (eRename) {
+        /* try next / fall through */
+      }
+    }
+  }
+
+  try {
+    if (cmd.basedOn) {
+      var base = mcpFindMasterByName(doc, String(cmd.basedOn));
+      if (!base) {
+        throw new Error("ensureMaster basedOn not found: " + cmd.basedOn);
+      }
+      master = base.duplicate();
+    } else {
+      master = doc.masterSpreads.add();
+    }
+    var prefix = parsed.prefix || mcpNextMasterPrefix(doc);
+    try {
+      master.namePrefix = prefix;
+    } catch (ePref) {
+      /* optional */
+    }
+    try {
+      master.baseName = parsed.baseName;
+    } catch (eBase) {
+      throw new Error(
+        "ensureMaster baseName failed: " + (eBase.message || eBase),
+      );
+    }
+  } catch (eAdd) {
+    throw new Error("ensureMaster failed: " + (eAdd.message || eAdd));
+  }
+  return {
+    op: "ensureMaster",
+    name: String(master.name),
+    created: created,
+  };
+}
+
+function opAssignMaster(cmd) {
+  var doc = mcpRequireDoc();
+  var masterName = String(cmd.masterName || cmd.name || "");
+  if (!masterName) throw new Error("assignMaster requires masterName");
+  var master;
+  try {
+    if (masterName === "None" || masterName === "[None]") {
+      master = NothingEnum.NOTHING;
+    } else {
+      master = mcpFindMasterByName(doc, masterName);
+      if (!master) {
+        throw new Error("Master not found: " + masterName);
+      }
+    }
+  } catch (eM) {
+    throw new Error("assignMaster master failed: " + (eM.message || eM));
+  }
+
+  var indexes = [];
+  if (cmd.pageIndex !== undefined && cmd.pageIndex !== null) {
+    indexes.push(Number(cmd.pageIndex));
+  } else if (cmd.pageIndexes && cmd.pageIndexes.length) {
+    var p;
+    for (p = 0; p < cmd.pageIndexes.length; p++) {
+      indexes.push(Number(cmd.pageIndexes[p]));
+    }
+  } else {
+    throw new Error("assignMaster requires pageIndex or pageIndexes");
+  }
+
+  var applied = [];
+  var i;
+  for (i = 0; i < indexes.length; i++) {
+    var idx = indexes[i];
+    if (idx < 0 || idx >= doc.pages.length) {
+      throw new Error("assignMaster pageIndex out of range: " + idx);
+    }
+    try {
+      doc.pages[idx].appliedMaster = master;
+      applied.push(idx);
+    } catch (eA) {
+      throw new Error(
+        "assignMaster failed on page " + idx + ": " + (eA.message || eA),
+      );
+    }
+  }
+  return {
+    op: "assignMaster",
+    masterName: masterName,
+    pageIndexes: applied,
+  };
+}
+
+function opExportPdf(cmd) {
+  var doc = mcpRequireDoc();
+  var filePath = String(cmd.filePath || "");
+  if (!filePath) throw new Error("exportPdf requires filePath");
+  var f = new File(filePath);
+  mcpEnsureFolder(f.parent);
+  var presetName = cmd.preset ? String(cmd.preset) : "[High Quality Print]";
+  var preset;
+  try {
+    preset = app.pdfExportPresets.itemByName(presetName);
+    if (!preset || !preset.isValid) {
+      throw new Error("missing preset");
+    }
+  } catch (eP) {
+    try {
+      preset = app.pdfExportPresets.itemByName("[Press Quality]");
+    } catch (eP2) {
+      preset = app.pdfExportPresets.firstItem();
+    }
+  }
+  try {
+    doc.exportFile(ExportFormat.PDF_TYPE, f, false, preset);
+  } catch (eX) {
+    throw new Error("exportPdf failed: " + (eX.message || eX));
+  }
+  return {
+    op: "exportPdf",
+    filePath: filePath,
+    preset: presetName,
+  };
+}
+
+function opPackageDocument(cmd) {
+  var doc = mcpRequireDoc();
+  var folderPath = String(cmd.folderPath || "");
+  if (!folderPath) throw new Error("packageDocument requires folderPath");
+  var folder = new Folder(folderPath);
+  mcpEnsureFolder(folder);
+  var copyFonts = cmd.copyFonts !== false;
+  var copyLinks = cmd.copyLinkedGraphics !== false;
+  try {
+    doc.packageForPrint(
+      folder,
+      copyFonts,
+      copyLinks,
+      false,
+      true,
+      false,
+      true,
+      true,
+    );
+  } catch (ePkg) {
+    throw new Error("packageDocument failed: " + (ePkg.message || ePkg));
+  }
+  return {
+    op: "packageDocument",
+    folderPath: folderPath,
+  };
+}
+
 function runCommand(cmd) {
   if (!cmd || !cmd.op) {
     throw new Error("Command missing op");
@@ -1816,6 +2381,8 @@ function runCommand(cmd) {
       return opSetFont(cmd);
     case "setFill":
       return opSetFill(cmd);
+    case "setTextColor":
+      return opSetTextColor(cmd);
     case "alignItems":
       return opAlignItems(cmd);
     case "distributeItems":
@@ -1843,6 +2410,24 @@ function runCommand(cmd) {
       return opRelinkAsset(cmd);
     case "embedAsset":
       return opEmbedAsset(cmd);
+    case "createDocument":
+      return opCreateDocument(cmd);
+    case "addPages":
+      return opAddPages(cmd);
+    case "ensureSwatch":
+      return opEnsureSwatch(cmd);
+    case "createRectangle":
+      return opCreateRectangle(cmd);
+    case "placeAsset":
+      return opPlaceAsset(cmd);
+    case "ensureMaster":
+      return opEnsureMaster(cmd);
+    case "assignMaster":
+      return opAssignMaster(cmd);
+    case "exportPdf":
+      return opExportPdf(cmd);
+    case "packageDocument":
+      return opPackageDocument(cmd);
     default:
       throw new Error("Unknown op: " + cmd.op);
   }
@@ -1872,6 +2457,7 @@ var MCP_MUTATING_OPS = {
   replaceText: 1,
   setFont: 1,
   setFill: 1,
+  setTextColor: 1,
   alignItems: 1,
   distributeItems: 1,
   centerItems: 1,
@@ -1883,6 +2469,15 @@ var MCP_MUTATING_OPS = {
   relinkAsset: 1,
   replaceAsset: 1,
   embedAsset: 1,
+  createDocument: 1,
+  addPages: 1,
+  ensureSwatch: 1,
+  createRectangle: 1,
+  placeAsset: 1,
+  ensureMaster: 1,
+  assignMaster: 1,
+  exportPdf: 1,
+  packageDocument: 1,
 };
 
 function mcpHasMutation(commands) {

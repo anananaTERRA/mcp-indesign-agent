@@ -133,6 +133,11 @@ export const BatchCommandSchema = z.discriminatedUnion("op", [
     fill: FillSchema,
   }),
   z.object({
+    op: z.literal("setTextColor"),
+    target: TargetSchema,
+    fill: FillSchema,
+  }),
+  z.object({
     op: z.literal("align"),
     target: TargetSchema,
     align: AlignModeSchema,
@@ -197,6 +202,71 @@ export const BatchCommandSchema = z.discriminatedUnion("op", [
     op: z.literal("embedAsset"),
     linkId: z.union([z.string(), z.number()]).optional(),
     name: z.string().optional(),
+  }),
+  z.object({
+    op: z.literal("createDocument"),
+    filePath: z.string().min(1).describe("Absolute path for the new .indd"),
+    widthPt: z.number().positive().optional().describe("Page width in points (default A4 595.276)"),
+    heightPt: z.number().positive().optional().describe("Page height in points (default A4 841.89)"),
+    pageCount: z.number().int().min(1).max(500).optional(),
+    facingPages: z.boolean().optional(),
+    bleedPt: z.number().nonnegative().optional(),
+  }),
+  z.object({
+    op: z.literal("addPages"),
+    count: z.number().int().min(1).max(200).optional().describe("Pages to add (default 1)"),
+    afterPageIndex: z
+      .number()
+      .int()
+      .min(-1)
+      .optional()
+      .describe("0-based page to insert after; -1 = beginning; omit = end"),
+  }),
+  z.object({
+    op: z.literal("ensureSwatch"),
+    name: z.string().min(1),
+    rgb: z.tuple([z.number(), z.number(), z.number()]).optional(),
+    cmyk: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
+  }),
+  z.object({
+    op: z.literal("createRectangle"),
+    pageIndex: z.number().int().min(0).optional(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+    fill: FillSchema.optional(),
+  }),
+  z.object({
+    op: z.literal("placeAsset"),
+    filePath: z.string().min(1),
+    pageIndex: z.number().int().min(0).optional(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }),
+  z.object({
+    op: z.literal("ensureMaster"),
+    name: z.string().min(1),
+    basedOn: z.string().optional(),
+  }),
+  z.object({
+    op: z.literal("assignMaster"),
+    masterName: z.string().min(1),
+    pageIndex: z.number().int().min(0).optional(),
+    pageIndexes: z.array(z.number().int().min(0)).optional(),
+  }),
+  z.object({
+    op: z.literal("exportPdf"),
+    filePath: z.string().min(1),
+    preset: z.string().optional(),
+  }),
+  z.object({
+    op: z.literal("packageDocument"),
+    folderPath: z.string().min(1),
+    copyFonts: z.boolean().optional(),
+    copyLinkedGraphics: z.boolean().optional(),
   }),
 ]);
 
@@ -264,6 +334,11 @@ export type ResolvedDispatcherCommand =
       fill: z.infer<typeof FillSchema>;
     }
   | {
+      op: "setTextColor";
+      target: string;
+      fill: z.infer<typeof FillSchema>;
+    }
+  | {
       op: "alignItems";
       targets: string[];
       align: z.infer<typeof AlignModeSchema>;
@@ -319,6 +394,66 @@ export type ResolvedDispatcherCommand =
       op: "embedAsset";
       linkId?: string | number;
       name?: string;
+    }
+  | {
+      op: "createDocument";
+      filePath: string;
+      widthPt?: number;
+      heightPt?: number;
+      pageCount?: number;
+      facingPages?: boolean;
+      bleedPt?: number;
+    }
+  | {
+      op: "addPages";
+      count?: number;
+      afterPageIndex?: number;
+    }
+  | {
+      op: "ensureSwatch";
+      name: string;
+      rgb?: [number, number, number];
+      cmyk?: [number, number, number, number];
+    }
+  | {
+      op: "createRectangle";
+      pageIndex?: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      fill?: z.infer<typeof FillSchema>;
+    }
+  | {
+      op: "placeAsset";
+      filePath: string;
+      pageIndex?: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }
+  | {
+      op: "ensureMaster";
+      name: string;
+      basedOn?: string;
+    }
+  | {
+      op: "assignMaster";
+      masterName: string;
+      pageIndex?: number;
+      pageIndexes?: number[];
+    }
+  | {
+      op: "exportPdf";
+      filePath: string;
+      preset?: string;
+    }
+  | {
+      op: "packageDocument";
+      folderPath: string;
+      copyFonts?: boolean;
+      copyLinkedGraphics?: boolean;
     };
 
 export function parseBatchCommands(input: unknown): BatchCommand[] {

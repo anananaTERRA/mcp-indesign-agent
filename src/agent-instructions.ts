@@ -27,4 +27,6 @@ Rules:
 - For overlaps/tight gaps: layout_assistant diagnose → preview → fix.
 - Styles/assets: list_* from cache; mutations via tools or batch ops (applyStyle, relinkAsset, …).
 - To add a new paragraph/text box: execute_batch op createTextFrame (prefer below:{role|uuid} or x,y,width,height) — do NOT duplicate an existing frame as a workaround.
+- Document bootstrap: createDocument (A4 defaults) → scan_document → ensureSwatch / createStyle / ensureMaster → addPages / createRectangle / placeAsset / createTextFrame. After createDocument or addPages, always re-scan.
+- Finish: exportPdf {filePath, preset?} and packageDocument {folderPath}.
 - Do not invent new MCP tools. New capabilities belong as dispatcher ops + batch commands (ceiling ~25 registered tools).`;

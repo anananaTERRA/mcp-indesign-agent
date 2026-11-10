@@ -15,6 +15,7 @@ export const MUTATING_DISPATCHER_OPS: ReadonlySet<string> = new Set([
   "replaceText",
   "setFont",
   "setFill",
+  "setTextColor",
   "alignItems",
   "distributeItems",
   "centerItems",
@@ -26,6 +27,15 @@ export const MUTATING_DISPATCHER_OPS: ReadonlySet<string> = new Set([
   "relinkAsset",
   "replaceAsset",
   "embedAsset",
+  "createDocument",
+  "addPages",
+  "ensureSwatch",
+  "createRectangle",
+  "placeAsset",
+  "ensureMaster",
+  "assignMaster",
+  "exportPdf",
+  "packageDocument",
 ]);
 
 export function isMutatingOp(op: string): boolean {
