@@ -2741,6 +2741,28 @@ function opPlaceFolio(cmd) {
     sides.push({ idx: 0, side: "left" });
   }
 
+  // Facing masters use spread coordinates: left page x in [0,pageW],
+  // right page x in [pageW, 2*pageW]. Wipe existing bottom folio candidates
+  // first so repeated placeFolio calls stay idempotent.
+  var wipePi;
+  var wipeTi;
+  for (wipePi = 0; wipePi < master.pages.length; wipePi++) {
+    var wipePage = master.pages[wipePi];
+    for (wipeTi = wipePage.textFrames.length - 1; wipeTi >= 0; wipeTi--) {
+      try {
+        var wipeTf = wipePage.textFrames[wipeTi];
+        var wipeB = wipeTf.geometricBounds;
+        var wipeY1 = Number(wipeB[0]);
+        var wipeH = Number(wipeB[2]) - wipeY1;
+        if (wipeY1 >= pageH - 80 && wipeH <= 40) {
+          wipeTf.remove();
+        }
+      } catch (eWipe) {
+        /* skip */
+      }
+    }
+  }
+
   var created = [];
   var s;
   for (s = 0; s < sides.length; s++) {
@@ -2750,8 +2772,8 @@ function opPlaceFolio(cmd) {
     if (cmd.x !== undefined && cmd.x !== null) {
       x = Number(cmd.x);
     } else if (entry.side === "right") {
-      // Outer edge on recto
-      x = pageW - width - 45.35;
+      // Outer edge on recto in SPREAD coords
+      x = pageW + (pageW - width - 45.35);
     } else {
       // Outer edge on verso
       x = 45.35;
@@ -2778,6 +2800,14 @@ function opPlaceFolio(cmd) {
     }
     try {
       var text = tf.texts[0];
+      try {
+        var folioPs = doc.paragraphStyles.itemByName("Folio");
+        if (folioPs && folioPs.isValid) {
+          text.appliedParagraphStyle = folioPs;
+        }
+      } catch (ePs) {
+        /* optional */
+      }
       try {
         text.appliedFont = fontFamily + "\t" + fontStyle;
       } catch (eFont) {
