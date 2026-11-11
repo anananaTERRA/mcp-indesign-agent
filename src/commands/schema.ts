@@ -138,6 +138,13 @@ export const BatchCommandSchema = z.discriminatedUnion("op", [
     fill: FillSchema,
   }),
   z.object({
+    op: z.literal("setStroke"),
+    target: TargetSchema,
+    weightPt: z.number().nonnegative().optional().describe("Stroke weight in points"),
+    stroke: FillSchema.optional().describe("Stroke color (swatch|rgb|cmyk)"),
+    strokeNone: z.boolean().optional().describe("Clear stroke (weight 0)"),
+  }),
+  z.object({
     op: z.literal("align"),
     target: TargetSchema,
     align: AlignModeSchema,
@@ -231,20 +238,138 @@ export const BatchCommandSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("createRectangle"),
     pageIndex: z.number().int().min(0).optional(),
+    masterName: z.string().min(1).optional(),
+    pageSide: z.enum(["left", "right"]).optional(),
     x: z.number(),
     y: z.number(),
     width: z.number().positive(),
     height: z.number().positive(),
     fill: FillSchema.optional(),
+    weightPt: z.number().nonnegative().optional(),
+    stroke: FillSchema.optional(),
+    strokeNone: z.boolean().optional(),
+    sendToBack: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal("createOval"),
+    pageIndex: z.number().int().min(0).optional(),
+    masterName: z.string().min(1).optional(),
+    pageSide: z.enum(["left", "right"]).optional(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+    fill: FillSchema.optional(),
+    weightPt: z.number().nonnegative().optional(),
+    stroke: FillSchema.optional(),
+    strokeNone: z.boolean().optional(),
+    sendToBack: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal("createGraphicLine"),
+    pageIndex: z.number().int().min(0).optional(),
+    masterName: z.string().min(1).optional(),
+    pageSide: z.enum(["left", "right"]).optional(),
+    x1: z.number(),
+    y1: z.number(),
+    x2: z.number(),
+    y2: z.number(),
+    weightPt: z.number().nonnegative().optional().describe("Default 0.5pt"),
+    stroke: FillSchema.optional(),
+    sendToBack: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal("createBand"),
+    pageIndex: z.number().int().min(0).optional(),
+    masterName: z.string().min(1).optional(),
+    pageSide: z.enum(["left", "right"]).optional(),
+    y: z.number().describe("Top of band in points"),
+    height: z.number().positive(),
+    x: z.number().optional().describe("Default 0 (full-bleed left)"),
+    width: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Default page width (full-bleed)"),
+    fill: FillSchema.optional().describe("Default Marfim rgb[243,238,230]"),
+    sendToBack: z
+      .boolean()
+      .optional()
+      .describe("Default true — band behind content"),
   }),
   z.object({
     op: z.literal("placeAsset"),
     filePath: z.string().min(1),
     pageIndex: z.number().int().min(0).optional(),
+    masterName: z.string().min(1).optional(),
+    pageSide: z.enum(["left", "right"]).optional(),
     x: z.number(),
     y: z.number(),
     width: z.number().positive(),
     height: z.number().positive(),
+    shape: z
+      .enum(["rectangle", "oval", "ellipse", "circle"])
+      .optional()
+      .describe("Frame shape; oval/circle for ProfileCard photos"),
+    fit: z
+      .enum(["proportionally", "fill", "frameToContent", "contentToFrame"])
+      .optional()
+      .describe("Default fill for oval, proportionally for rectangle"),
+  }),
+  z.object({
+    op: z.literal("convertShape"),
+    target: TargetSchema,
+    shape: z
+      .enum(["oval", "ellipse", "circle", "rectangle", "triangle", "polygon", "line"])
+      .optional()
+      .describe("Default oval — circular crop for ProfileCard"),
+    fit: z
+      .enum(["proportionally", "fill", "frameToContent", "contentToFrame"])
+      .optional(),
+    refit: z.boolean().optional().describe("Re-fit content after convert"),
+  }),
+  z.object({
+    op: z.literal("placeFolio"),
+    masterName: z.string().min(1).describe('e.g. "A-Corpo"'),
+    pageSide: z
+      .enum(["left", "right", "both"])
+      .optional()
+      .describe("Default both (facing master)"),
+    x: z.number().optional(),
+    y: z.number().optional().describe("Default pageH-40"),
+    width: z.number().positive().optional().describe("Default 48"),
+    height: z.number().positive().optional().describe("Default 14"),
+    fontFamily: z.string().optional().describe("Default Mulish"),
+    fontStyle: z.string().optional().describe("Default Regular"),
+    fontSizePt: z.number().positive().optional().describe("Default 8"),
+    fill: FillSchema.optional().describe("Default #4a4a4a"),
+    align: z.enum(["left", "center", "right"]).optional(),
+  }),
+  z.object({
+    op: z.literal("sendToBack"),
+    target: TargetSchema,
+  }),
+  z.object({
+    op: z.literal("bringToFront"),
+    target: TargetSchema,
+  }),
+  z.object({
+    op: z.literal("setTextInsets"),
+    target: TargetSchema,
+    insetPt: z.number().nonnegative().optional().describe("Uniform inset"),
+    topPt: z.number().nonnegative().optional(),
+    leftPt: z.number().nonnegative().optional(),
+    bottomPt: z.number().nonnegative().optional(),
+    rightPt: z.number().nonnegative().optional(),
+  }),
+  z.object({
+    op: z.literal("setTextColumns"),
+    target: TargetSchema,
+    count: z.number().int().min(1).max(40).optional(),
+    gutterPt: z.number().nonnegative().optional(),
+    ruleWeightPt: z.number().nonnegative().optional(),
+    ruleStroke: FillSchema.optional(),
+    rule: z.boolean().optional().describe("false clears column rules"),
   }),
   z.object({
     op: z.literal("ensureMaster"),
@@ -339,6 +464,13 @@ export type ResolvedDispatcherCommand =
       fill: z.infer<typeof FillSchema>;
     }
   | {
+      op: "setStroke";
+      target: string;
+      weightPt?: number;
+      stroke?: z.infer<typeof FillSchema>;
+      strokeNone?: boolean;
+    }
+  | {
       op: "alignItems";
       targets: string[];
       align: z.infer<typeof AlignModeSchema>;
@@ -418,20 +550,118 @@ export type ResolvedDispatcherCommand =
   | {
       op: "createRectangle";
       pageIndex?: number;
+      masterName?: string;
+      pageSide?: "left" | "right";
       x: number;
       y: number;
       width: number;
       height: number;
       fill?: z.infer<typeof FillSchema>;
+      weightPt?: number;
+      stroke?: z.infer<typeof FillSchema>;
+      strokeNone?: boolean;
+      sendToBack?: boolean;
+    }
+  | {
+      op: "createOval";
+      pageIndex?: number;
+      masterName?: string;
+      pageSide?: "left" | "right";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      fill?: z.infer<typeof FillSchema>;
+      weightPt?: number;
+      stroke?: z.infer<typeof FillSchema>;
+      strokeNone?: boolean;
+      sendToBack?: boolean;
+    }
+  | {
+      op: "createGraphicLine";
+      pageIndex?: number;
+      masterName?: string;
+      pageSide?: "left" | "right";
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      weightPt?: number;
+      stroke?: z.infer<typeof FillSchema>;
+      sendToBack?: boolean;
+    }
+  | {
+      op: "createBand";
+      pageIndex?: number;
+      masterName?: string;
+      pageSide?: "left" | "right";
+      y: number;
+      height: number;
+      x?: number;
+      width?: number;
+      fill?: z.infer<typeof FillSchema>;
+      sendToBack?: boolean;
     }
   | {
       op: "placeAsset";
       filePath: string;
       pageIndex?: number;
+      masterName?: string;
+      pageSide?: "left" | "right";
       x: number;
       y: number;
       width: number;
       height: number;
+      shape?: "rectangle" | "oval" | "ellipse" | "circle";
+      fit?: "proportionally" | "fill" | "frameToContent" | "contentToFrame";
+    }
+  | {
+      op: "convertShape";
+      target: string;
+      shape?:
+        | "oval"
+        | "ellipse"
+        | "circle"
+        | "rectangle"
+        | "triangle"
+        | "polygon"
+        | "line";
+      fit?: "proportionally" | "fill" | "frameToContent" | "contentToFrame";
+      refit?: boolean;
+    }
+  | {
+      op: "placeFolio";
+      masterName: string;
+      pageSide?: "left" | "right" | "both";
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      fontFamily?: string;
+      fontStyle?: string;
+      fontSizePt?: number;
+      fill?: z.infer<typeof FillSchema>;
+      align?: "left" | "center" | "right";
+    }
+  | { op: "sendToBack"; target: string }
+  | { op: "bringToFront"; target: string }
+  | {
+      op: "setTextInsets";
+      target: string;
+      insetPt?: number;
+      topPt?: number;
+      leftPt?: number;
+      bottomPt?: number;
+      rightPt?: number;
+    }
+  | {
+      op: "setTextColumns";
+      target: string;
+      count?: number;
+      gutterPt?: number;
+      ruleWeightPt?: number;
+      ruleStroke?: z.infer<typeof FillSchema>;
+      rule?: boolean;
     }
   | {
       op: "ensureMaster";

@@ -245,6 +245,87 @@ async function main(): Promise<void> {
         );
       }
     }
+
+    printSection("polish ops smoke (createBand + createGraphicLine + convertShape, then delete)");
+    {
+      // Single ENTIRE_SCRIPT request: create → stroke → convert → line → delete.
+      // Targets after create use labels returned in results[0].created.uuid.
+      const smoke = await bridge.run({
+        requestId: "doctor-polish-ops",
+        transactionName: "MCP doctor polish smoke",
+        commands: [
+          {
+            op: "createBand",
+            pageIndex: 0,
+            y: -200,
+            height: 20,
+            x: 0,
+            width: 40,
+            fill: { rgb: [243, 238, 230] },
+            sendToBack: true,
+          },
+          {
+            op: "createOval",
+            pageIndex: 0,
+            x: 50,
+            y: -200,
+            width: 30,
+            height: 30,
+            fill: { rgb: [200, 200, 200] },
+          },
+          {
+            op: "createGraphicLine",
+            pageIndex: 0,
+            x1: 100,
+            y1: -200,
+            x2: 100,
+            y2: -160,
+            weightPt: 0.5,
+            stroke: { rgb: [217, 210, 200] },
+          },
+        ],
+      });
+      console.log(`polish create ok: ${Boolean(smoke.ok)}`);
+      const createdUuids: string[] = [];
+      for (const r of smoke.results ?? []) {
+        const body = r as { created?: { uuid?: string } };
+        if (body?.created?.uuid) createdUuids.push(body.created.uuid);
+      }
+      console.log(`created uuids: ${createdUuids.length}`);
+      if (createdUuids.length > 0) {
+        const strokeAndConvert = await bridge.run({
+          requestId: "doctor-polish-stroke-convert",
+          transactionName: "MCP doctor polish stroke",
+          commands: [
+            {
+              op: "setStroke",
+              target: createdUuids[0],
+              weightPt: 1,
+              stroke: { rgb: [13, 99, 83] },
+            },
+            ...(createdUuids[1]
+              ? [
+                  {
+                    op: "convertShape" as const,
+                    target: createdUuids[1],
+                    shape: "rectangle" as const,
+                  },
+                ]
+              : []),
+          ],
+        });
+        console.log(`setStroke/convertShape ok: ${Boolean(strokeAndConvert.ok)}`);
+        const cleanup = await bridge.run({
+          requestId: "doctor-polish-cleanup",
+          transactionName: "MCP doctor polish cleanup",
+          commands: createdUuids.map((target) => ({
+            op: "deleteItem" as const,
+            target,
+          })),
+        });
+        console.log(`cleanup delete ok: ${Boolean(cleanup.ok)}`);
+      }
+    }
   } else {
     printSection("scanDocument");
     console.log("Skipped (no active document). Open a .indd to exercise scan + UUID.");

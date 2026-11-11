@@ -207,14 +207,20 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
       case "setFont":
       case "setFill":
       case "setTextColor":
-      case "applyStyle": {
+      case "setStroke":
+      case "applyStyle":
+      case "convertShape":
+      case "sendToBack":
+      case "bringToFront":
+      case "setTextInsets":
+      case "setTextColumns": {
         const box = boundsMap.get(cmd.target);
         changes.push({
           uuid: cmd.target,
           op: cmd.op,
           fromBounds: box ? fromBox(box) : null,
           toBounds: box ? fromBox(box) : null,
-          note: "text/style change (bounds unchanged in preview)",
+          note: "text/style/z-order change (bounds unchanged in preview)",
         });
         break;
       }
@@ -277,7 +283,8 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
       case "ensureMaster":
       case "assignMaster":
       case "exportPdf":
-      case "packageDocument": {
+      case "packageDocument":
+      case "placeFolio": {
         changes.push({
           uuid: "",
           op: cmd.op,
@@ -288,6 +295,7 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
         break;
       }
       case "createRectangle":
+      case "createOval":
       case "placeAsset": {
         changes.push({
           uuid: "",
@@ -300,6 +308,38 @@ export function previewBatch(commandsInput: unknown): PreviewBatchResult {
             x2: cmd.x + cmd.width,
           },
           note: cmd.op,
+        });
+        break;
+      }
+      case "createGraphicLine": {
+        const y1 = Math.min(cmd.y1, cmd.y2);
+        const y2 = Math.max(cmd.y1, cmd.y2);
+        const x1 = Math.min(cmd.x1, cmd.x2);
+        const x2 = Math.max(cmd.x1, cmd.x2);
+        changes.push({
+          uuid: "",
+          op: cmd.op,
+          fromBounds: null,
+          toBounds: { y1, x1, y2, x2 },
+          note: "graphic line / rule",
+        });
+        break;
+      }
+      case "createBand": {
+        const page = pageSize(model);
+        const x = cmd.x ?? 0;
+        const width = cmd.width ?? page.width;
+        changes.push({
+          uuid: "",
+          op: cmd.op,
+          fromBounds: null,
+          toBounds: {
+            y1: cmd.y,
+            x1: x,
+            y2: cmd.y + cmd.height,
+            x2: x + width,
+          },
+          note: "ivory/band rectangle (sendToBack default)",
         });
         break;
       }

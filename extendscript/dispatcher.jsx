@@ -4,11 +4,14 @@
  *
  * Ops: ping | noop | scanDocument | getSelection | checkpoint
  *      moveItem | resizeItem | deleteItem | duplicateItem | createTextFrame
- *      setText | replaceText | setFont | setFill
+ *      setText | replaceText | setFont | setFill | setTextColor | setStroke
  *      alignItems | distributeItems | centerItems | stackItems | applyMargins
  *      listStyles | applyStyle | createStyle | updateStyle
  *      listAssets | checkMissingLinks | relinkAsset | embedAsset
- *      createDocument | addPages | ensureSwatch | createRectangle | placeAsset
+ *      createDocument | addPages | ensureSwatch | createRectangle | createOval
+ *      createGraphicLine | createBand | placeAsset | convertShape
+ *      placeFolio | sendToBack | bringToFront
+ *      setTextInsets | setTextColumns
  *      ensureMaster | assignMaster | exportPdf | packageDocument
  *
  * Every request that contains a mutating op runs inside a single
@@ -856,6 +859,7 @@ function mcpFindByUuid(doc, uuid) {
   var label = MCP_LABEL_PREFIX + String(uuid);
   var i;
   var j;
+  var k;
   for (i = 0; i < doc.pages.length; i++) {
     var pageItems = doc.pages[i].allPageItems;
     for (j = 0; j < pageItems.length; j++) {
@@ -868,7 +872,115 @@ function mcpFindByUuid(doc, uuid) {
       }
     }
   }
+  // Folios / master chrome live on masterSpreads, not document pages.
+  try {
+    for (i = 0; i < doc.masterSpreads.length; i++) {
+      var ms = doc.masterSpreads[i];
+      for (k = 0; k < ms.pages.length; k++) {
+        var mItems = ms.pages[k].allPageItems;
+        for (j = 0; j < mItems.length; j++) {
+          try {
+            if (String(mItems[j].label || "") === label) {
+              return mItems[j];
+            }
+          } catch (eM) {
+            /* skip */
+          }
+        }
+      }
+    }
+  } catch (eMs) {
+    /* ignore */
+  }
   throw new Error("ITEM_NOT_FOUND: No page item with uuid " + uuid);
+}
+
+function mcpLabelNewItem(item) {
+  var uuid = mcpUuid();
+  try {
+    item.label = MCP_LABEL_PREFIX + uuid;
+  } catch (eL) {
+    /* ignore */
+  }
+  return uuid;
+}
+
+function mcpApplyStroke(doc, item, cmd) {
+  if (cmd.strokeNone === true || cmd.weightPt === 0) {
+    try {
+      item.strokeWeight = 0;
+    } catch (e0) {
+      /* optional */
+    }
+    try {
+      item.strokeColor = doc.swatches.itemByName("None");
+    } catch (eN) {
+      /* optional */
+    }
+    return;
+  }
+  if (cmd.weightPt !== undefined && cmd.weightPt !== null) {
+    item.strokeWeight = Number(cmd.weightPt);
+  }
+  var strokeSpec = cmd.stroke || cmd.strokeColor || cmd.color;
+  if (strokeSpec) {
+    item.strokeColor = mcpResolveFill(doc, strokeSpec);
+  }
+}
+
+function mcpFitFrame(frame, fitMode) {
+  var mode = String(fitMode || "fill");
+  try {
+    if (mode === "proportionally") {
+      frame.fit(FitOptions.PROPORTIONALLY);
+      frame.fit(FitOptions.CENTER_CONTENT);
+    } else if (mode === "frameToContent") {
+      frame.fit(FitOptions.FRAME_TO_CONTENT);
+    } else if (mode === "contentToFrame") {
+      frame.fit(FitOptions.CONTENT_TO_FRAME);
+    } else {
+      // Default for circular / profile crops: fill + center
+      frame.fit(FitOptions.FILL_PROPORTIONALLY);
+      frame.fit(FitOptions.CENTER_CONTENT);
+    }
+  } catch (eFit) {
+    try {
+      frame.fit(FitOptions.PROPORTIONALLY);
+      frame.fit(FitOptions.CENTER_CONTENT);
+    } catch (eFit2) {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Resolve a document page or a master-page side.
+ * cmd.masterName → master spread page (pageSide: left|right, default left).
+ * else cmd.pageIndex (default 0).
+ */
+function mcpResolveDrawPage(doc, cmd) {
+  if (cmd.masterName) {
+    var master = mcpFindMasterByName(doc, String(cmd.masterName));
+    if (!master) {
+      throw new Error("Master not found: " + cmd.masterName);
+    }
+    var side = String(cmd.pageSide || "left").toLowerCase();
+    var idx = 0;
+    if ((side === "right" || side === "recto") && master.pages.length > 1) {
+      idx = 1;
+    }
+    return master.pages[idx];
+  }
+  var pageIndex =
+    cmd.pageIndex !== undefined && cmd.pageIndex !== null
+      ? Number(cmd.pageIndex)
+      : 0;
+  if (pageIndex < 0 || pageIndex >= doc.pages.length) {
+    throw new Error(
+      "pageIndex out of range (0.." + (doc.pages.length - 1) + ")",
+    );
+  }
+  return doc.pages[pageIndex];
 }
 
 function mcpSerializeItem(item, doc) {
@@ -1992,17 +2104,6 @@ function opEnsureSwatch(cmd) {
 
 function opCreateRectangle(cmd) {
   var doc = mcpRequireDoc();
-  var pageIndex =
-    cmd.pageIndex !== undefined && cmd.pageIndex !== null
-      ? Number(cmd.pageIndex)
-      : 0;
-  if (pageIndex < 0 || pageIndex >= doc.pages.length) {
-    throw new Error(
-      "createRectangle pageIndex out of range (0.." +
-        (doc.pages.length - 1) +
-        ")",
-    );
-  }
   if (
     cmd.x === undefined ||
     cmd.y === undefined ||
@@ -2018,7 +2119,7 @@ function opCreateRectangle(cmd) {
   if (!(width > 0) || !(height > 0)) {
     throw new Error("createRectangle width/height must be positive");
   }
-  var page = doc.pages[pageIndex];
+  var page = mcpResolveDrawPage(doc, cmd);
   var rect;
   try {
     rect = page.rectangles.add({
@@ -2027,12 +2128,7 @@ function opCreateRectangle(cmd) {
   } catch (eAdd) {
     throw new Error("createRectangle failed: " + (eAdd.message || eAdd));
   }
-  var uuid = mcpUuid();
-  try {
-    rect.label = MCP_LABEL_PREFIX + uuid;
-  } catch (eL) {
-    /* ignore */
-  }
+  mcpLabelNewItem(rect);
   if (cmd.fill) {
     try {
       rect.fillColor = mcpResolveFill(doc, cmd.fill);
@@ -2040,15 +2136,101 @@ function opCreateRectangle(cmd) {
       throw new Error("createRectangle fill failed: " + (eF.message || eF));
     }
   }
-  try {
-    rect.strokeWeight = 0;
-  } catch (eS) {
-    /* optional */
+  if (
+    cmd.stroke ||
+    cmd.strokeColor ||
+    (cmd.weightPt !== undefined && cmd.weightPt !== null) ||
+    cmd.strokeNone === true
+  ) {
+    try {
+      mcpApplyStroke(doc, rect, cmd);
+    } catch (eSt) {
+      throw new Error("createRectangle stroke failed: " + (eSt.message || eSt));
+    }
+  } else {
+    try {
+      rect.strokeWeight = 0;
+    } catch (eS) {
+      /* optional */
+    }
+  }
+  if (cmd.sendToBack === true) {
+    try {
+      rect.sendToBack();
+    } catch (eZ) {
+      /* optional */
+    }
   }
   mcpPatchUpdated(rect, doc);
   return {
     op: "createRectangle",
     created: mcpSerializeItem(rect, doc),
+  };
+}
+
+function opCreateOval(cmd) {
+  var doc = mcpRequireDoc();
+  if (
+    cmd.x === undefined ||
+    cmd.y === undefined ||
+    cmd.width === undefined ||
+    cmd.height === undefined
+  ) {
+    throw new Error("createOval requires x,y,width,height");
+  }
+  var x = Number(cmd.x);
+  var y = Number(cmd.y);
+  var width = Number(cmd.width);
+  var height = Number(cmd.height);
+  if (!(width > 0) || !(height > 0)) {
+    throw new Error("createOval width/height must be positive");
+  }
+  var page = mcpResolveDrawPage(doc, cmd);
+  var oval;
+  try {
+    oval = page.ovals.add({
+      geometricBounds: [y, x, y + height, x + width],
+    });
+  } catch (eAdd) {
+    throw new Error("createOval failed: " + (eAdd.message || eAdd));
+  }
+  mcpLabelNewItem(oval);
+  if (cmd.fill) {
+    try {
+      oval.fillColor = mcpResolveFill(doc, cmd.fill);
+    } catch (eF) {
+      throw new Error("createOval fill failed: " + (eF.message || eF));
+    }
+  }
+  if (
+    cmd.stroke ||
+    cmd.strokeColor ||
+    (cmd.weightPt !== undefined && cmd.weightPt !== null) ||
+    cmd.strokeNone === true
+  ) {
+    try {
+      mcpApplyStroke(doc, oval, cmd);
+    } catch (eSt) {
+      throw new Error("createOval stroke failed: " + (eSt.message || eSt));
+    }
+  } else {
+    try {
+      oval.strokeWeight = 0;
+    } catch (eS) {
+      /* optional */
+    }
+  }
+  if (cmd.sendToBack === true) {
+    try {
+      oval.sendToBack();
+    } catch (eZ) {
+      /* optional */
+    }
+  }
+  mcpPatchUpdated(oval, doc);
+  return {
+    op: "createOval",
+    created: mcpSerializeItem(oval, doc),
   };
 }
 
@@ -2059,17 +2241,6 @@ function opPlaceAsset(cmd) {
   var f = new File(filePath);
   if (!f.exists) throw new Error("placeAsset file not found: " + filePath);
 
-  var pageIndex =
-    cmd.pageIndex !== undefined && cmd.pageIndex !== null
-      ? Number(cmd.pageIndex)
-      : 0;
-  if (pageIndex < 0 || pageIndex >= doc.pages.length) {
-    throw new Error(
-      "placeAsset pageIndex out of range (0.." +
-        (doc.pages.length - 1) +
-        ")",
-    );
-  }
   if (
     cmd.x === undefined ||
     cmd.y === undefined ||
@@ -2086,20 +2257,26 @@ function opPlaceAsset(cmd) {
     throw new Error("placeAsset width/height must be positive");
   }
 
-  var page = doc.pages[pageIndex];
+  var page = mcpResolveDrawPage(doc, cmd);
+  var shape = String(cmd.shape || "rectangle").toLowerCase();
   var frame;
   try {
-    frame = page.rectangles.add({
-      geometricBounds: [y, x, y + height, x + width],
-    });
+    if (shape === "oval" || shape === "ellipse" || shape === "circle") {
+      frame = page.ovals.add({
+        geometricBounds: [y, x, y + height, x + width],
+      });
+    } else {
+      frame = page.rectangles.add({
+        geometricBounds: [y, x, y + height, x + width],
+      });
+    }
   } catch (eAdd) {
     throw new Error("placeAsset frame failed: " + (eAdd.message || eAdd));
   }
 
   try {
     frame.place(f, false);
-    frame.fit(FitOptions.PROPORTIONALLY);
-    frame.fit(FitOptions.CENTER_CONTENT);
+    mcpFitFrame(frame, cmd.fit || (shape === "oval" || shape === "ellipse" || shape === "circle" ? "fill" : "proportionally"));
   } catch (ePlace) {
     try {
       frame.remove();
@@ -2109,12 +2286,7 @@ function opPlaceAsset(cmd) {
     throw new Error("placeAsset place failed: " + (ePlace.message || ePlace));
   }
 
-  var uuid = mcpUuid();
-  try {
-    frame.label = MCP_LABEL_PREFIX + uuid;
-  } catch (eL) {
-    /* ignore */
-  }
+  mcpLabelNewItem(frame);
   try {
     frame.strokeWeight = 0;
   } catch (eS) {
@@ -2126,6 +2298,7 @@ function opPlaceAsset(cmd) {
     op: "placeAsset",
     created: mcpSerializeItem(frame, doc),
     filePath: filePath,
+    shape: shape,
   };
 }
 
@@ -2351,6 +2524,409 @@ function opPackageDocument(cmd) {
   };
 }
 
+function opSetStroke(cmd) {
+  var doc = mcpRequireDoc();
+  var item = mcpFindByUuid(doc, cmd.target);
+  try {
+    mcpApplyStroke(doc, item, cmd);
+  } catch (e) {
+    throw new Error("setStroke failed: " + (e.message || e));
+  }
+  mcpPatchUpdated(item, doc);
+  return {
+    op: "setStroke",
+    target: cmd.target,
+    item: mcpSerializeItem(item, doc),
+  };
+}
+
+/**
+ * Create a GraphicLine (vertical / horizontal / diagonal rule).
+ * Pass x1,y1,x2,y2 in points. For a MilestoneStrip vertical rule use x1===x2.
+ */
+function opCreateGraphicLine(cmd) {
+  var doc = mcpRequireDoc();
+  if (
+    cmd.x1 === undefined ||
+    cmd.y1 === undefined ||
+    cmd.x2 === undefined ||
+    cmd.y2 === undefined
+  ) {
+    throw new Error("createGraphicLine requires x1,y1,x2,y2");
+  }
+  var x1 = Number(cmd.x1);
+  var y1 = Number(cmd.y1);
+  var x2 = Number(cmd.x2);
+  var y2 = Number(cmd.y2);
+  var page = mcpResolveDrawPage(doc, cmd);
+  var line;
+  try {
+    line = page.graphicLines.add();
+    line.paths.item(0).entirePath = [
+      [x1, y1],
+      [x2, y2],
+    ];
+  } catch (eAdd) {
+    throw new Error("createGraphicLine failed: " + (eAdd.message || eAdd));
+  }
+  mcpLabelNewItem(line);
+  try {
+    if (cmd.weightPt !== undefined && cmd.weightPt !== null) {
+      line.strokeWeight = Number(cmd.weightPt);
+    } else {
+      line.strokeWeight = 0.5;
+    }
+    var strokeSpec = cmd.stroke || cmd.strokeColor || cmd.color;
+    if (strokeSpec) {
+      line.strokeColor = mcpResolveFill(doc, strokeSpec);
+    }
+  } catch (eSt) {
+    throw new Error("createGraphicLine stroke failed: " + (eSt.message || eSt));
+  }
+  if (cmd.sendToBack === true) {
+    try {
+      line.sendToBack();
+    } catch (eZ) {
+      /* optional */
+    }
+  }
+  mcpPatchUpdated(line, doc);
+  return {
+    op: "createGraphicLine",
+    created: mcpSerializeItem(line, doc),
+  };
+}
+
+/**
+ * Full-bleed (or custom) band rectangle — dual-track ivory / marfim helper.
+ * Defaults: x=0, width=pageWidth, fill=#f3eee6, sendToBack=true.
+ */
+function opCreateBand(cmd) {
+  var doc = mcpRequireDoc();
+  if (cmd.y === undefined || cmd.y === null) {
+    throw new Error("createBand requires y");
+  }
+  if (cmd.height === undefined || cmd.height === null) {
+    throw new Error("createBand requires height");
+  }
+  var page = mcpResolveDrawPage(doc, cmd);
+  var pageW = Number(doc.documentPreferences.pageWidth);
+  var y = Number(cmd.y);
+  var height = Number(cmd.height);
+  if (!(height > 0)) throw new Error("createBand height must be positive");
+  var x = cmd.x !== undefined && cmd.x !== null ? Number(cmd.x) : 0;
+  var width =
+    cmd.width !== undefined && cmd.width !== null
+      ? Number(cmd.width)
+      : pageW;
+  if (!(width > 0)) throw new Error("createBand width must be positive");
+
+  var fillSpec = cmd.fill || { rgb: [243, 238, 230] };
+  var rect;
+  try {
+    rect = page.rectangles.add({
+      geometricBounds: [y, x, y + height, x + width],
+    });
+  } catch (eAdd) {
+    throw new Error("createBand failed: " + (eAdd.message || eAdd));
+  }
+  mcpLabelNewItem(rect);
+  try {
+    rect.fillColor = mcpResolveFill(doc, fillSpec);
+  } catch (eF) {
+    throw new Error("createBand fill failed: " + (eF.message || eF));
+  }
+  try {
+    rect.strokeWeight = 0;
+  } catch (eS) {
+    /* optional */
+  }
+  var sendBack = cmd.sendToBack !== false;
+  if (sendBack) {
+    try {
+      rect.sendToBack();
+    } catch (eZ) {
+      /* optional */
+    }
+  }
+  mcpPatchUpdated(rect, doc);
+  return {
+    op: "createBand",
+    created: mcpSerializeItem(rect, doc),
+    fill: fillSpec,
+    sendToBack: sendBack,
+  };
+}
+
+function opConvertShape(cmd) {
+  var doc = mcpRequireDoc();
+  var item = mcpFindByUuid(doc, cmd.target);
+  var shape = String(cmd.shape || "oval").toLowerCase();
+  var opt;
+  if (shape === "oval" || shape === "ellipse" || shape === "circle") {
+    opt = ConvertShapeOptions.CONVERT_TO_OVAL;
+  } else if (shape === "rectangle" || shape === "rect") {
+    opt = ConvertShapeOptions.CONVERT_TO_RECTANGLE;
+  } else if (shape === "triangle") {
+    opt = ConvertShapeOptions.CONVERT_TO_TRIANGLE;
+  } else if (shape === "polygon") {
+    opt = ConvertShapeOptions.CONVERT_TO_POLYGON;
+  } else if (shape === "line") {
+    opt = ConvertShapeOptions.CONVERT_TO_LINE;
+  } else {
+    throw new Error(
+      "convertShape shape must be oval|rectangle|triangle|polygon|line",
+    );
+  }
+  try {
+    item.convertShape(opt);
+  } catch (e) {
+    throw new Error("convertShape failed: " + (e.message || e));
+  }
+  if (cmd.refit === true || cmd.fit) {
+    try {
+      mcpFitFrame(item, cmd.fit || "fill");
+    } catch (eFit) {
+      /* optional — item may have no content */
+    }
+  }
+  mcpPatchUpdated(item, doc);
+  return {
+    op: "convertShape",
+    target: cmd.target,
+    shape: shape,
+    item: mcpSerializeItem(item, doc),
+  };
+}
+
+/**
+ * Place auto page-number (folio) text frames on a master spread.
+ * masterName required (e.g. "A-Corpo"). pageSide: left|right|both (default both).
+ */
+function opPlaceFolio(cmd) {
+  var doc = mcpRequireDoc();
+  var masterName = String(cmd.masterName || "");
+  if (!masterName) throw new Error("placeFolio requires masterName");
+  var master = mcpFindMasterByName(doc, masterName);
+  if (!master) throw new Error("Master not found: " + masterName);
+
+  var pageW = Number(doc.documentPreferences.pageWidth);
+  var pageH = Number(doc.documentPreferences.pageHeight);
+  var y =
+    cmd.y !== undefined && cmd.y !== null ? Number(cmd.y) : pageH - 40;
+  var height =
+    cmd.height !== undefined && cmd.height !== null ? Number(cmd.height) : 14;
+  var width =
+    cmd.width !== undefined && cmd.width !== null ? Number(cmd.width) : 48;
+  var fontSize =
+    cmd.fontSizePt !== undefined && cmd.fontSizePt !== null
+      ? Number(cmd.fontSizePt)
+      : 8;
+  var fontFamily = cmd.fontFamily ? String(cmd.fontFamily) : "Mulish";
+  var fontStyle = cmd.fontStyle ? String(cmd.fontStyle) : "Regular";
+  var align = String(cmd.align || "center").toLowerCase();
+  var fillSpec = cmd.fill || { rgb: [74, 74, 74] };
+  var sideReq = String(cmd.pageSide || "both").toLowerCase();
+
+  var sides = [];
+  if (sideReq === "both") {
+    sides.push({ idx: 0, side: "left" });
+    if (master.pages.length > 1) sides.push({ idx: 1, side: "right" });
+  } else if (sideReq === "right" || sideReq === "recto") {
+    sides.push({
+      idx: master.pages.length > 1 ? 1 : 0,
+      side: "right",
+    });
+  } else {
+    sides.push({ idx: 0, side: "left" });
+  }
+
+  var created = [];
+  var s;
+  for (s = 0; s < sides.length; s++) {
+    var entry = sides[s];
+    var mPage = master.pages[entry.idx];
+    var x;
+    if (cmd.x !== undefined && cmd.x !== null) {
+      x = Number(cmd.x);
+    } else if (entry.side === "right") {
+      // Outer edge on recto
+      x = pageW - width - 45.35;
+    } else {
+      // Outer edge on verso
+      x = 45.35;
+    }
+    var tf;
+    try {
+      tf = mPage.textFrames.add({
+        geometricBounds: [y, x, y + height, x + width],
+      });
+    } catch (eAdd) {
+      throw new Error(
+        "placeFolio frame failed (" + entry.side + "): " + (eAdd.message || eAdd),
+      );
+    }
+    mcpLabelNewItem(tf);
+    try {
+      tf.contents = SpecialCharacters.AUTO_PAGE_NUMBER;
+    } catch (eC) {
+      try {
+        tf.contents = "\u0018";
+      } catch (eC2) {
+        throw new Error("placeFolio page number failed: " + (eC.message || eC));
+      }
+    }
+    try {
+      var text = tf.texts[0];
+      try {
+        text.appliedFont = fontFamily + "\t" + fontStyle;
+      } catch (eFont) {
+        try {
+          text.appliedFont = fontFamily;
+        } catch (eFont2) {
+          /* optional */
+        }
+      }
+      text.pointSize = fontSize;
+      text.fillColor = mcpResolveFill(doc, fillSpec);
+      if (align === "left") {
+        text.justification = Justification.LEFT_ALIGN;
+      } else if (align === "right") {
+        text.justification = Justification.RIGHT_ALIGN;
+      } else {
+        text.justification = Justification.CENTER_ALIGN;
+      }
+    } catch (eStyle) {
+      throw new Error("placeFolio style failed: " + (eStyle.message || eStyle));
+    }
+    mcpPatchUpdated(tf, doc);
+    created.push(mcpSerializeItem(tf, doc));
+  }
+
+  return {
+    op: "placeFolio",
+    masterName: String(master.name),
+    pageSide: sideReq,
+    created: created,
+  };
+}
+
+function opSendToBack(cmd) {
+  var doc = mcpRequireDoc();
+  var item = mcpFindByUuid(doc, cmd.target);
+  try {
+    item.sendToBack();
+  } catch (e) {
+    throw new Error("sendToBack failed: " + (e.message || e));
+  }
+  mcpPatchUpdated(item, doc);
+  return {
+    op: "sendToBack",
+    target: cmd.target,
+    item: mcpSerializeItem(item, doc),
+  };
+}
+
+function opBringToFront(cmd) {
+  var doc = mcpRequireDoc();
+  var item = mcpFindByUuid(doc, cmd.target);
+  try {
+    item.bringToFront();
+  } catch (e) {
+    throw new Error("bringToFront failed: " + (e.message || e));
+  }
+  mcpPatchUpdated(item, doc);
+  return {
+    op: "bringToFront",
+    target: cmd.target,
+    item: mcpSerializeItem(item, doc),
+  };
+}
+
+function opSetTextInsets(cmd) {
+  var doc = mcpRequireDoc();
+  var item = mcpFindByUuid(doc, cmd.target);
+  if (!(item instanceof TextFrame)) {
+    throw new Error("setTextInsets requires a TextFrame");
+  }
+  var prefs = item.textFramePreferences;
+  var top;
+  var left;
+  var bottom;
+  var right;
+  if (cmd.insetPt !== undefined && cmd.insetPt !== null) {
+    var all = Number(cmd.insetPt);
+    top = left = bottom = right = all;
+  } else {
+    top = cmd.topPt !== undefined && cmd.topPt !== null ? Number(cmd.topPt) : 0;
+    left =
+      cmd.leftPt !== undefined && cmd.leftPt !== null ? Number(cmd.leftPt) : 0;
+    bottom =
+      cmd.bottomPt !== undefined && cmd.bottomPt !== null
+        ? Number(cmd.bottomPt)
+        : 0;
+    right =
+      cmd.rightPt !== undefined && cmd.rightPt !== null
+        ? Number(cmd.rightPt)
+        : 0;
+  }
+  try {
+    // InDesign expects [top, left, bottom, right]
+    prefs.insetSpacing = [top, left, bottom, right];
+  } catch (e) {
+    throw new Error("setTextInsets failed: " + (e.message || e));
+  }
+  mcpPatchUpdated(item, doc);
+  return {
+    op: "setTextInsets",
+    target: cmd.target,
+    insetSpacing: [top, left, bottom, right],
+    item: mcpSerializeItem(item, doc),
+  };
+}
+
+function opSetTextColumns(cmd) {
+  var doc = mcpRequireDoc();
+  var item = mcpFindByUuid(doc, cmd.target);
+  if (!(item instanceof TextFrame)) {
+    throw new Error("setTextColumns requires a TextFrame");
+  }
+  var prefs = item.textFramePreferences;
+  try {
+    if (cmd.count !== undefined && cmd.count !== null) {
+      prefs.textColumnCount = Number(cmd.count);
+    }
+    if (cmd.gutterPt !== undefined && cmd.gutterPt !== null) {
+      prefs.textColumnGutter = Number(cmd.gutterPt);
+    }
+    if (cmd.ruleWeightPt !== undefined && cmd.ruleWeightPt !== null) {
+      var rw = Number(cmd.ruleWeightPt);
+      prefs.columnRuleStrokeWeight = rw;
+      prefs.columnRule = rw > 0;
+    } else if (cmd.rule === false) {
+      prefs.columnRule = false;
+      prefs.columnRuleStrokeWeight = 0;
+    }
+    if (cmd.ruleStroke || cmd.ruleColor) {
+      prefs.columnRuleStrokeColor = mcpResolveFill(
+        doc,
+        cmd.ruleStroke || cmd.ruleColor,
+      );
+      if (cmd.ruleWeightPt === undefined && cmd.rule !== false) {
+        prefs.columnRule = true;
+      }
+    }
+  } catch (e) {
+    throw new Error("setTextColumns failed: " + (e.message || e));
+  }
+  mcpPatchUpdated(item, doc);
+  return {
+    op: "setTextColumns",
+    target: cmd.target,
+    item: mcpSerializeItem(item, doc),
+  };
+}
+
 function runCommand(cmd) {
   if (!cmd || !cmd.op) {
     throw new Error("Command missing op");
@@ -2386,6 +2962,8 @@ function runCommand(cmd) {
       return opSetFill(cmd);
     case "setTextColor":
       return opSetTextColor(cmd);
+    case "setStroke":
+      return opSetStroke(cmd);
     case "alignItems":
       return opAlignItems(cmd);
     case "distributeItems":
@@ -2421,8 +2999,26 @@ function runCommand(cmd) {
       return opEnsureSwatch(cmd);
     case "createRectangle":
       return opCreateRectangle(cmd);
+    case "createOval":
+      return opCreateOval(cmd);
+    case "createGraphicLine":
+      return opCreateGraphicLine(cmd);
+    case "createBand":
+      return opCreateBand(cmd);
     case "placeAsset":
       return opPlaceAsset(cmd);
+    case "convertShape":
+      return opConvertShape(cmd);
+    case "placeFolio":
+      return opPlaceFolio(cmd);
+    case "sendToBack":
+      return opSendToBack(cmd);
+    case "bringToFront":
+      return opBringToFront(cmd);
+    case "setTextInsets":
+      return opSetTextInsets(cmd);
+    case "setTextColumns":
+      return opSetTextColumns(cmd);
     case "ensureMaster":
       return opEnsureMaster(cmd);
     case "assignMaster":
@@ -2461,6 +3057,7 @@ var MCP_MUTATING_OPS = {
   setFont: 1,
   setFill: 1,
   setTextColor: 1,
+  setStroke: 1,
   alignItems: 1,
   distributeItems: 1,
   centerItems: 1,
@@ -2476,7 +3073,16 @@ var MCP_MUTATING_OPS = {
   addPages: 1,
   ensureSwatch: 1,
   createRectangle: 1,
+  createOval: 1,
+  createGraphicLine: 1,
+  createBand: 1,
   placeAsset: 1,
+  convertShape: 1,
+  placeFolio: 1,
+  sendToBack: 1,
+  bringToFront: 1,
+  setTextInsets: 1,
+  setTextColumns: 1,
   ensureMaster: 1,
   assignMaster: 1,
   exportPdf: 1,

@@ -136,9 +136,9 @@ Novas capacidades entram como **`op` no dispatcher + comando de batch**, não co
 
 ### Ops de `execute_batch`
 
-`checkpoint`, `move`, `resize`, `delete`, `duplicate`, `createTextFrame`, `setText`, `replaceText`, `setFont`, `setFill`, `align`, `distribute`, `center`, `stack`, `applyMargins`, `applyStyle`, `createStyle`, `updateStyle`, `relinkAsset`, `replaceAsset`, `embedAsset`.
+`checkpoint`, `move`, `resize`, `delete`, `duplicate`, `createTextFrame`, `setText`, `replaceText`, `setFont`, `setFill`, `setTextColor`, `setStroke`, `align`, `distribute`, `center`, `stack`, `applyMargins`, `applyStyle`, `createStyle`, `updateStyle`, `relinkAsset`, `replaceAsset`, `embedAsset`, `createDocument`, `addPages`, `ensureSwatch`, `createRectangle`, `createOval`, `createGraphicLine`, `createBand`, `placeAsset`, `convertShape`, `placeFolio`, `sendToBack`, `bringToFront`, `setTextInsets`, `setTextColumns`, `ensureMaster`, `assignMaster`, `exportPdf`, `packageDocument`.
 
-`checkpoint` é a única que não muta o documento.
+`checkpoint` é a única que não muta o documento. Stroke/rules → `setStroke` / `createGraphicLine`; circular crop → `placeAsset` `shape:"oval"` ou `convertShape`; folio → `placeFolio`; dual-track ivory → `createBand`.
 
 ## Env
 

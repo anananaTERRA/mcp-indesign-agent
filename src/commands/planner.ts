@@ -247,6 +247,19 @@ export function planCommands(
         }
         break;
       }
+      case "setStroke": {
+        const uuids = resolveTargetUuids(cmd.target, model);
+        for (const target of uuids) {
+          out.push({
+            op: "setStroke",
+            target,
+            weightPt: cmd.weightPt,
+            stroke: cmd.stroke,
+            strokeNone: cmd.strokeNone,
+          });
+        }
+        break;
+      }
       case "align": {
         const uuids = resolveTargetUuids(cmd.target, model);
         out.push({ op: "alignItems", targets: uuids, align: cmd.align });
@@ -377,11 +390,66 @@ export function planCommands(
         out.push({
           op: "createRectangle",
           pageIndex: cmd.pageIndex,
+          masterName: cmd.masterName,
+          pageSide: cmd.pageSide,
           x: cmd.x,
           y: cmd.y,
           width: cmd.width,
           height: cmd.height,
           fill: cmd.fill,
+          weightPt: cmd.weightPt,
+          stroke: cmd.stroke,
+          strokeNone: cmd.strokeNone,
+          sendToBack: cmd.sendToBack,
+        });
+        break;
+      }
+      case "createOval": {
+        out.push({
+          op: "createOval",
+          pageIndex: cmd.pageIndex,
+          masterName: cmd.masterName,
+          pageSide: cmd.pageSide,
+          x: cmd.x,
+          y: cmd.y,
+          width: cmd.width,
+          height: cmd.height,
+          fill: cmd.fill,
+          weightPt: cmd.weightPt,
+          stroke: cmd.stroke,
+          strokeNone: cmd.strokeNone,
+          sendToBack: cmd.sendToBack,
+        });
+        break;
+      }
+      case "createGraphicLine": {
+        out.push({
+          op: "createGraphicLine",
+          pageIndex: cmd.pageIndex,
+          masterName: cmd.masterName,
+          pageSide: cmd.pageSide,
+          x1: cmd.x1,
+          y1: cmd.y1,
+          x2: cmd.x2,
+          y2: cmd.y2,
+          weightPt: cmd.weightPt,
+          stroke: cmd.stroke,
+          sendToBack: cmd.sendToBack,
+        });
+        break;
+      }
+      case "createBand": {
+        out.push({
+          op: "createBand",
+          pageIndex: cmd.pageIndex,
+          masterName: cmd.masterName,
+          pageSide: cmd.pageSide,
+          y: cmd.y,
+          height: cmd.height,
+          x: cmd.x,
+          width: cmd.width,
+          fill: cmd.fill,
+          sendToBack: cmd.sendToBack,
         });
         break;
       }
@@ -390,11 +458,89 @@ export function planCommands(
           op: "placeAsset",
           filePath: cmd.filePath,
           pageIndex: cmd.pageIndex,
+          masterName: cmd.masterName,
+          pageSide: cmd.pageSide,
           x: cmd.x,
           y: cmd.y,
           width: cmd.width,
           height: cmd.height,
+          shape: cmd.shape,
+          fit: cmd.fit,
         });
+        break;
+      }
+      case "convertShape": {
+        const uuids = resolveTargetUuids(cmd.target, model);
+        for (const target of uuids) {
+          out.push({
+            op: "convertShape",
+            target,
+            shape: cmd.shape,
+            fit: cmd.fit,
+            refit: cmd.refit,
+          });
+        }
+        break;
+      }
+      case "placeFolio": {
+        out.push({
+          op: "placeFolio",
+          masterName: cmd.masterName,
+          pageSide: cmd.pageSide,
+          x: cmd.x,
+          y: cmd.y,
+          width: cmd.width,
+          height: cmd.height,
+          fontFamily: cmd.fontFamily,
+          fontStyle: cmd.fontStyle,
+          fontSizePt: cmd.fontSizePt,
+          fill: cmd.fill,
+          align: cmd.align,
+        });
+        break;
+      }
+      case "sendToBack": {
+        const uuids = resolveTargetUuids(cmd.target, model);
+        for (const target of uuids) {
+          out.push({ op: "sendToBack", target });
+        }
+        break;
+      }
+      case "bringToFront": {
+        const uuids = resolveTargetUuids(cmd.target, model);
+        for (const target of uuids) {
+          out.push({ op: "bringToFront", target });
+        }
+        break;
+      }
+      case "setTextInsets": {
+        const uuids = resolveTargetUuids(cmd.target, model);
+        for (const target of uuids) {
+          out.push({
+            op: "setTextInsets",
+            target,
+            insetPt: cmd.insetPt,
+            topPt: cmd.topPt,
+            leftPt: cmd.leftPt,
+            bottomPt: cmd.bottomPt,
+            rightPt: cmd.rightPt,
+          });
+        }
+        break;
+      }
+      case "setTextColumns": {
+        const uuids = resolveTargetUuids(cmd.target, model);
+        for (const target of uuids) {
+          out.push({
+            op: "setTextColumns",
+            target,
+            count: cmd.count,
+            gutterPt: cmd.gutterPt,
+            ruleWeightPt: cmd.ruleWeightPt,
+            ruleStroke: cmd.ruleStroke,
+            rule: cmd.rule,
+          });
+        }
         break;
       }
       case "ensureMaster": {
